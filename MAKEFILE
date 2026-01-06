@@ -1,0 +1,159 @@
+#
+# MAKEFILE - Open Watcom build for Abacus DOS Utilities
+#
+# Part of the Abacus FPGA Project
+# Last Updated: 2026-01-06 12:45:00 EST
+#
+# Usage:
+#   wmake              Build CACHEKIT (HAL-based v3.0)
+#   wmake legacy       Build legacy single-file version
+#   wmake clean        Remove build artifacts
+#
+# Requirements:
+#   Open Watcom C/C++ (wcc, wlink)
+#   Set WATCOM environment variable
+#
+
+#============================================================================
+# COMPILER SETTINGS
+#============================================================================
+
+CC = wcc
+CFLAGS = -0 -ms -s -ox -w4 -zq
+
+# -0   = 8086 compatible (runs on any x86)
+# -ms  = Small memory model
+# -s   = Disable stack checking
+# -ox  = Maximum optimization
+# -w4  = Warning level 4
+# -zq  = Quiet (suppress banner)
+
+# For 386-specific optimizations (faster but requires 386+):
+# CFLAGS = -3 -ms -s -ox -w4 -zq
+
+LINK = wlink
+LFLAGS = option quiet option stack=8192
+
+#============================================================================
+# HAL-BASED BUILD (v3.0)
+#============================================================================
+
+# HAL object files
+HAL_OBJS = &
+    CACHEKIT.OBJ &
+    CK_HAL.OBJ &
+    CK_IO.OBJ &
+    CK_ENUM.OBJ &
+    CK_INTEL.OBJ &
+    CK_SIS.OBJ &
+    CK_OPTI.OBJ &
+    CK_VIA.OBJ &
+    CK_ALI.OBJ &
+    CK_LEGACY.OBJ &
+    CK_OTHER.OBJ &
+    CK_VIDEO.OBJ &
+    CK_UI.OBJ
+
+# Default target - HAL-based build
+all: CACHEKIT.EXE
+    @echo.
+    @echo Build complete: CACHEKIT.EXE (v3.0 HAL)
+
+# Link HAL-based executable
+CACHEKIT.EXE: $(HAL_OBJS)
+    $(LINK) $(LFLAGS) name CACHEKIT.EXE file { $(HAL_OBJS) }
+
+#============================================================================
+# LEGACY BUILD (single-file v2.x)
+#============================================================================
+
+WCL = wcl
+WCLFLAGS = -0 -ms -os -wx -zq -fe=$^@
+
+legacy: CACHEKIT_LEGACY.EXE
+    @echo.
+    @echo Build complete: CACHEKIT_LEGACY.EXE (v2.x single-file)
+
+CACHEKIT_LEGACY.EXE: CACHEKIT.C
+    $(WCL) $(WCLFLAGS) CACHEKIT.C
+    rename CACHEKIT.EXE CACHEKIT_LEGACY.EXE
+
+#============================================================================
+# CLI UTILITIES (standalone, from v1.x)
+#============================================================================
+
+CLI_TARGETS = CHIPSET.EXE NCCONFIG.EXE CACHETST.EXE
+
+cli: $(CLI_TARGETS)
+    @echo.
+    @echo CLI utilities built.
+
+CHIPSET.EXE: CHIPSET.C
+    $(WCL) $(WCLFLAGS) CHIPSET.C
+
+NCCONFIG.EXE: NCCONFIG.C
+    $(WCL) $(WCLFLAGS) NCCONFIG.C
+
+CACHETST.EXE: CACHETST.C
+    $(WCL) $(WCLFLAGS) CACHETST.C
+
+#============================================================================
+# COMPILE RULES
+#============================================================================
+
+.c.obj:
+    $(CC) $(CFLAGS) $<
+
+#============================================================================
+# DEPENDENCIES
+#============================================================================
+
+# Core HAL
+CK_HAL.OBJ: CK_HAL.C CK_HAL.H
+CK_IO.OBJ: CK_IO.C CK_HAL.H
+CK_ENUM.OBJ: CK_ENUM.C CK_ENUM.H CK_HAL.H
+
+# Chipset implementations
+CK_INTEL.OBJ: CK_INTEL.C CK_HAL.H
+CK_SIS.OBJ: CK_SIS.C CK_HAL.H
+CK_OPTI.OBJ: CK_OPTI.C CK_HAL.H
+CK_VIA.OBJ: CK_VIA.C CK_HAL.H
+CK_ALI.OBJ: CK_ALI.C CK_HAL.H
+CK_LEGACY.OBJ: CK_LEGACY.C CK_HAL.H
+CK_OTHER.OBJ: CK_OTHER.C CK_HAL.H
+
+# UI components
+CK_VIDEO.OBJ: CK_VIDEO.C CK_VIDEO.H
+CK_UI.OBJ: CK_UI.C CK_UI.H CK_VIDEO.H
+
+# Main application
+CACHEKIT.OBJ: CACHEKIT.C CK_HAL.H CK_VIDEO.H CK_UI.H CK_ENUM.H
+
+#============================================================================
+# UTILITY TARGETS
+#============================================================================
+
+clean: .SYMBOLIC
+    @if exist *.OBJ del *.OBJ
+    @if exist *.EXE del *.EXE
+    @if exist *.MAP del *.MAP
+    @if exist *.ERR del *.ERR
+    @echo Clean complete.
+
+rebuild: .SYMBOLIC
+    wmake clean
+    wmake all
+
+help: .SYMBOLIC
+    @echo.
+    @echo Abacus DOS Utilities - CACHEKIT Build System
+    @echo =============================================
+    @echo.
+    @echo Targets:
+    @echo   all          Build CACHEKIT v3.0 (HAL-based, multi-file)
+    @echo   legacy       Build CACHEKIT v2.x (single-file)
+    @echo   cli          Build standalone CLI utilities
+    @echo   clean        Remove build artifacts
+    @echo   rebuild      Clean and rebuild
+    @echo   help         Show this message
+    @echo.

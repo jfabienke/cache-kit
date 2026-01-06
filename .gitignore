@@ -1,0 +1,22 @@
+# Build artifacts
+*.OBJ
+*.obj
+*.EXE
+*.exe
+*.MAP
+*.map
+*.ERR
+*.err
+
+# Watcom temporary files
+*.LST
+*.lst
+
+# Editor backups
+*~
+*.bak
+*.swp
+
+# IDE files
+.vscode/
+*.dSYM/
