@@ -25,7 +25,7 @@ CACHEKIT.EXE v3.0 - Combined TUI Utility (RECOMMENDED)
 ================================================================================
 
 Full-screen text user interface combining all functionality into one tool.
-Navigate between screens using F1-F7 keys or Tab.
+Navigate between screens using F1-F8 keys or Tab.
 
 Usage: CACHEKIT
 
@@ -36,7 +36,8 @@ Keys:
   F4        Register Dump
   F5        Memory Bandwidth Benchmarks
   F6        Configuration Profiles
-  F7        Expansion Card Inventory (NEW)
+  F7        Expansion Card Inventory
+  F8        EISA/MCA Bus Configuration (NEW in v3.1)
   Tab       Next screen
   Alt-X     Exit
 
@@ -248,6 +249,109 @@ NEW IN v2.8 (SMBIOS/ACPI SYSTEM INFORMATION):
   - Works on systems from late Pentium era (1996+) through modern PCs
   - Graceful fallback: Shows "not found" on 386/486 without SMBIOS
 
+NEW IN v3.1 (EISA/MCA BUS CONFIGURATION):
+  - New F8 screen for EISA and MCA slot/device configuration:
+    * Auto-detects EISA or MCA bus (mutually exclusive architectures)
+    * Lists all populated slots with adapter ID, enable status, resources
+    * Enable/disable individual adapter cards
+    * View and edit resource assignments (IRQ, DMA, I/O, Memory)
+  - EISA configuration support:
+    * Scans slots 0-15 for installed adapters
+    * Reads compressed EISA vendor ID and product ID
+    * Embedded database of ~150 common EISA cards:
+      - SCSI: Compaq Smart Array, Adaptec AHA-1740/2740, BusLogic BT-742/747/757,
+        DPT PM series, NCR 53C700/710/810/825, Future Domain TMC, UltraStor,
+        Mylex DAC960, ICP GDT3000
+      - Network: 3Com 3C503/507/509/579/592/597, Intel EtherExpress PRO/100,
+        DEC DE422/425/450/500, HP EtherTwist, SMC Elite32, Madge Token Ring
+      - Graphics: ATI Mach32 EISA, Matrox MGA/Millennium, S3 Vision 864/964,
+        Tseng Labs ET4000, Cirrus Logic GD543x, Number Nine GXE, Weitek Power 9000
+      - Sound: Creative Sound Blaster, Media Vision Pro AudioSpectrum, Gravis UltraSound
+      - Serial/Modem: US Robotics, Hayes, DigiBoard, Equinox, Comtrol, Specialix
+    * Card enable/disable via control register
+    * NVM save to Extended CMOS (preserves config across reboots)
+    * BIOS vendor detection for NVM protocol compatibility:
+      - Compaq, Dell, Micronics, Intel: Ports 0x800-0x802, sum checksum
+      - HP, Olivetti: Ports 0xC00-0xC02, XOR checksum
+      - DEC, NCR: INT 15h AH=D8h BIOS services (most portable)
+      - AMI, Award, Phoenix: Compaq-compatible
+    * Auto-detects INT 15h AH=D8h EISA CMOS services when available
+    * Hardcoded EISA system board detection via slot 0 ID (0x0C80-0x0C83):
+      - Complete database of 60+ system boards from major vendors
+      - Compaq: SystemPro, Deskpro, ProSignia, ProLiant series
+      - HP: Vectra RS/486/XU/VL, NetServer LE/LM/LF/LH/LC/LS/LH Pro/LX Pro
+      - DEC: DECpc 433/450, DECstation, DECpc AXP 150 (Alpha Jensen)
+      - Dell: PowerEdge 2100/2200/4100/4200
+      - NCR: System 3230/3340/3410/3430/3450/3550
+      - Intel: EISA 486 Reference, Alder, Xpress Server
+      - Olivetti: CP486, M486, NetStrada
+      - Micronics: EISA-3, EISA-4, Gemini
+      - AST: Premium 386/486, Manhattan P
+      - ALR: Business VEISA, PowerPro, Revolution
+      - Acer: AcerPower 4e, AcerAltos 7000
+      - Apricot: LS Pro, XEN-S
+      - NEC: PowerMate 486, Express Server
+      - Automatic slot count detection based on system board identification
+  - MCA (Micro Channel) configuration support:
+    * Scans slots 0-7 for PS/2 adapter cards
+    * Reads all 8 POS (Programmable Option Select) registers
+    * Embedded database of ~50 common MCA cards (IBM, 3Com, Adaptec, etc.)
+    * Expanded POS decode table with 30+ adapter-specific parsers:
+      - IBM Token Ring, SCSI, XGA, ESDI, IDE, Ethernet adapters
+      - 3Com EtherLink/MC, EtherLink III/MC, EtherLink/MC 32
+      - Adaptec AHA-1640, BusLogic BT-640A, NCR 53C700, Future Domain
+      - Sound Blaster MCV/Pro MCV, Pro AudioSpectrum 16
+      - ATI 8514/Ultra, Graphics Ultra, Matrox MG-1024
+      - Intel and US Robotics modems
+    * Card enable/disable via POS register 2 bit 0
+    * Direct POS register editing for advanced users
+    * NVRAM save support
+    * Hardcoded PS/2 model detection via INT 15h AH=C0h:
+      - Complete database of 50+ IBM PS/2 models with slot counts
+      - Model 25/25SX (0 slots), Model 30 (0 slots), Model 50/50Z (4 slots)
+      - Model 55SX (3 slots), Model 60 (8 slots), Model 70 (3 slots)
+      - Model 80 (8 slots), Model 90/95 (8 slots), Model 35/40 (3 slots)
+      - Rare third-party MCA: NCR System 3000, Tandy 5000, Reply 32, Apricot Qi
+      - Automatic slot count detection based on model identification
+      - IBM PS/2 vs third-party clone detection
+    * NEW: Bus width and speed detection by PS/2 model:
+      - 16-bit MCA @ 10 MHz: Model 50, 50Z, 55SX, 55LS, 60, 65SX, 35/40 (286/386SX)
+      - 32-bit MCA @ 16-25 MHz: Model 70, 80 (386DX at 16/20/25 MHz)
+      - 32-bit MCA @ 25-33 MHz: Model 90, 95, Servers (486/Pentium)
+      - Bus width/speed displayed in F8 screen title bar
+    * NEW: MCA adapter capability detection:
+      - Bus master detection for SCSI, Token Ring, XGA, and other adapters
+      - Arbitration level display (0-15)
+      - Fairness mode detection (cooperative vs burst mode)
+      - Streaming data mode detection for high-performance adapters
+      - Capabilities displayed in slot details panel
+  - Configuration export (W key):
+    * Exports detailed configuration report to BUSCFG.TXT
+    * Includes system info, slot details, resources, and conflicts
+    * Useful for documentation and troubleshooting
+  - ISA Plug and Play configuration support (NEW):
+    * Full ISA PnP 1.0a protocol implementation
+    * 32-byte LFSR initiation key sequence for card wake-up
+    * Card isolation and automatic CSN (Card Select Number) assignment
+    * Resource data parsing: IRQ, DMA, I/O ports, memory windows
+    * Embedded database of ~30 common ISA PnP cards:
+      - Sound: Creative SB16/AWE32/AWE64, ESS AudioDrive 688/1688/1868/1869,
+        Yamaha OPL3-SA/SAx, Crystal CS4231/4232/4236, OPTi 82C924/925/930/931,
+        Gravis UltraSound PnP, Aztech, MediaVision
+      - Network: 3Com EtherLink III (3C509B), Intel EtherExpress,
+        Realtek RTL8019 (NE2000 PnP), SMC Ultra/Elite PnP
+      - Modems: US Robotics, Hayes, Generic PCMCIA, various ISA modems
+    * Activate/deactivate logical devices (A/D keys)
+    * Works standalone (ISA/VLB systems) or combined with EISA
+    * Mixed EISA + ISA PnP mode:
+      - EISA slots shown first, then ISA PnP cards appended
+      - Title shows "EISA + ISA PnP CONFIGURATION (+N PnP)"
+      - Individual card actions based on bus type (A=Activate for PnP, A=AutoCfg for EISA)
+    * MCA excluded: PS/2 systems use separate slot architecture (no ISA bus)
+  - New source files:
+    * CK_BUSCFG.C/H - Bus configuration API and implementation
+  - Test on 86Box: EISA 486 systems, IBM PS/2 Model 80, ISA systems with PnP cards
+
 NEW IN v3.0 (HAL ARCHITECTURE REFACTOR):
   - Complete codebase restructure using Hardware Abstraction Layer (HAL)
   - Per-chipset operations structure (chipset_ops_t) replaces switch statements
@@ -281,7 +385,7 @@ NEW IN v3.0 (HAL ARCHITECTURE REFACTOR):
   - Binary size ~65KB (vs ~45KB single-file, acceptable for modularity)
 
 
-SOURCE CODE MODULES (v3.0)
+SOURCE CODE MODULES (v3.1)
 --------------------------
 
 Architecture:
@@ -324,10 +428,12 @@ Architecture:
 HAL Core:
   File            Lines   Code   Purpose
   --------------- -----  -----   ----------------------------------------
-  CACHEKIT.C      8,897  6,343   Main app: UI screens, state, main loop
+  CACHEKIT.C      9,100+ 6,500+  Main app: UI screens, state, main loop
   CK_HAL.H          218    114   HAL interface: chipset_ops_t, result codes
   CK_HAL.C          374    210   Detection registry, unknown fallback, helpers
   CK_IO.C           281    157   PCI config space, legacy port I/O
+  CK_BUSCFG.C       550+   400+  EISA/MCA bus configuration
+  CK_BUSCFG.H       220+   120+  Bus configuration API
 
 Chipset Implementations:
   File            Lines   Code   Chipsets Supported

@@ -2,7 +2,7 @@
  * CK_ENUM.C - CACHEKIT Bus Enumeration Implementation
  *
  * Part of CACHEKIT v3.0
- * Last Updated: 2026-01-06 11:45:00 EST
+ * Last Updated: 2026-01-06 17:08:46 EST
  *
  * Provides device enumeration for:
  *   - PCI (full 256-bus scan)
@@ -966,34 +966,172 @@ int enum_isapnp_devices(void)
 }
 
 /*============================================================================
- * PCIe EXTENDED CONFIGURATION
+ * PCIe EXTENDED CONFIGURATION - PROPER ACPI TABLE ENUMERATION
+ *
+ * MCFG (Memory Mapped Configuration) table contains the PCIe extended
+ * configuration space base address. To find it properly:
+ *
+ * 1. Locate RSDP (Root System Description Pointer) in BIOS area
+ * 2. Get RSDT (Root System Description Table) address from RSDP
+ * 3. Walk RSDT entries to find MCFG table
+ * 4. Extract base address from MCFG table
+ *
+ * Note: This only works if RSDT is in the first 1MB (real mode accessible).
+ * On systems where RSDT is in extended memory, PCIe detection falls back
+ * to capability-based detection only.
  *============================================================================*/
 
-static int find_mcfg_table(void)
+/* ACPI signatures */
+#define RSDP_SIG_LO     0x20445352UL    /* "RSD " little-endian */
+#define RSDP_SIG_HI     0x20525450UL    /* "PTR " little-endian */
+#define RSDT_SIGNATURE  0x54445352UL    /* "RSDT" little-endian */
+
+/*
+ * Verify ACPI table checksum (sum of all bytes must be 0)
+ */
+static int acpi_checksum_valid(unsigned char far *table, unsigned int len)
+{
+    unsigned char sum = 0;
+    unsigned int i;
+
+    for (i = 0; i < len; i++) {
+        sum += table[i];
+    }
+    return (sum == 0);
+}
+
+/*
+ * Find RSDP in BIOS area (0xE0000-0xFFFFF)
+ * Returns far pointer to RSDP, or NULL if not found
+ */
+static unsigned char far *find_rsdp(void)
 {
     unsigned char far *ptr;
-    unsigned char far *end;
+    unsigned long sig_lo, sig_hi;
+
+    /* Search BIOS area on 16-byte boundaries */
+    for (ptr = (unsigned char far *)MK_FP(0xE000, 0x0000);
+         ptr < (unsigned char far *)MK_FP(0xFFFF, 0x0010);
+         ptr += 16) {
+
+        sig_lo = *(unsigned long far *)ptr;
+        sig_hi = *(unsigned long far *)(ptr + 4);
+
+        if (sig_lo == RSDP_SIG_LO && sig_hi == RSDP_SIG_HI) {
+            /* Found "RSD PTR " - verify checksum (first 20 bytes for ACPI 1.0) */
+            if (acpi_checksum_valid(ptr, 20)) {
+                return ptr;
+            }
+        }
+    }
+
+    return (unsigned char far *)0;
+}
+
+/*
+ * Convert physical address to far pointer (only works for addresses < 1MB)
+ * Returns NULL if address is not accessible in real mode
+ */
+static unsigned char far *phys_to_far(unsigned long phys_addr)
+{
+    unsigned int seg, off;
+
+    /* Can only access first 1MB in real mode */
+    if (phys_addr >= 0x100000UL) {
+        return (unsigned char far *)0;
+    }
+
+    /* Convert to segment:offset (segment = high 16 bits of 20-bit addr >> 4) */
+    seg = (unsigned int)(phys_addr >> 4);
+    off = (unsigned int)(phys_addr & 0x0F);
+
+    return (unsigned char far *)MK_FP(seg, off);
+}
+
+/*
+ * Find MCFG table by walking ACPI RSDT
+ */
+static int find_mcfg_table(void)
+{
+    unsigned char far *rsdp;
+    unsigned char far *rsdt;
+    unsigned long rsdt_phys;
+    unsigned long rsdt_len;
+    unsigned int num_entries;
+    unsigned int i;
+    unsigned long far *entries;
+    unsigned long table_phys;
+    unsigned char far *table;
     unsigned long sig;
 
-    ptr = (unsigned char far *)0xF0000000L;
-    end = (unsigned char far *)0xFFFF0000L;
+    /* Step 1: Find RSDP */
+    rsdp = find_rsdp();
+    if (!rsdp) {
+        return 0;  /* No ACPI on this system */
+    }
 
-    while (ptr < end) {
-        sig = *(unsigned long far *)ptr;
+    /* Step 2: Get RSDT physical address (offset 16 in RSDP) */
+    rsdt_phys = *(unsigned long far *)(rsdp + 16);
+
+    /* Convert to far pointer (must be < 1MB for real mode access) */
+    rsdt = phys_to_far(rsdt_phys);
+    if (!rsdt) {
+        return 0;  /* RSDT in extended memory, can't access in real mode */
+    }
+
+    /* Step 3: Verify RSDT signature */
+    sig = *(unsigned long far *)rsdt;
+    if (sig != RSDT_SIGNATURE) {
+        return 0;  /* Invalid RSDT */
+    }
+
+    /* Get RSDT length and verify checksum */
+    rsdt_len = *(unsigned long far *)(rsdt + 4);
+    if (rsdt_len > 4096 || rsdt_len < 36) {
+        return 0;  /* Sanity check: reasonable table size */
+    }
+    if (!acpi_checksum_valid(rsdt, (unsigned int)rsdt_len)) {
+        return 0;  /* Checksum failed */
+    }
+
+    /* Step 4: Walk RSDT entries looking for MCFG */
+    /* RSDT header is 36 bytes, followed by array of 4-byte physical addresses */
+    num_entries = (unsigned int)((rsdt_len - 36) / 4);
+    entries = (unsigned long far *)(rsdt + 36);
+
+    for (i = 0; i < num_entries && i < 64; i++) {
+        table_phys = entries[i];
+
+        /* Convert table address to far pointer */
+        table = phys_to_far(table_phys);
+        if (!table) {
+            continue;  /* Table in extended memory, skip */
+        }
+
+        /* Check for MCFG signature */
+        sig = *(unsigned long far *)table;
         if (sig == MCFG_SIGNATURE) {
-            g_mcfg_base = *(unsigned long far *)(ptr + 44);
-            g_mcfg_start_bus = *(ptr + 54);
-            g_mcfg_end_bus = *(ptr + 55);
+            /*
+             * MCFG table structure (relevant offsets):
+             *   0-3:   Signature "MCFG"
+             *   4-7:   Length
+             *   44-51: Base Address (8 bytes, we use low 4)
+             *   54:    Start Bus Number
+             *   55:    End Bus Number
+             */
+            g_mcfg_base = *(unsigned long far *)(table + 44);
+            g_mcfg_start_bus = *(table + 54);
+            g_mcfg_end_bus = *(table + 55);
 
-            if (g_mcfg_base >= 0x100000L && g_mcfg_base < 0xFFFFFFFFUL) {
+            /* Validate base address (must be above 1MB, typically 0xE0000000+) */
+            if (g_mcfg_base >= 0x100000UL) {
                 g_pcie_available = 1;
                 return 1;
             }
         }
-        ptr += 16;
     }
 
-    return 0;
+    return 0;  /* MCFG not found */
 }
 
 static int is_pcie_device(unsigned char bus, unsigned char dev, unsigned char func)

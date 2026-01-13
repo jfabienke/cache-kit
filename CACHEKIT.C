@@ -28,6 +28,7 @@
 #include "CK_VIDEO.H"
 #include "CK_UI.H"
 #include "CK_ENUM.H"
+#include "CK_BUSCFG.H"
 
 /*============================================================================
  * CONSTANTS
@@ -95,6 +96,7 @@
 #define KEY_F5      0x3F00
 #define KEY_F6      0x4000
 #define KEY_F7      0x4100
+#define KEY_F8      0x4200
 #define KEY_UP      0x4800
 #define KEY_DOWN    0x5000
 #define KEY_LEFT    0x4B00
@@ -230,6 +232,7 @@ typedef enum {
     SCREEN_BENCHMARK,
     SCREEN_PROFILES,
     SCREEN_INVENTORY,       /* F7 - Expansion Card Inventory */
+    SCREEN_BUSCONFIG,       /* F8 - EISA/MCA Bus Configuration */
     SCREEN_COUNT
 } screen_t;
 
@@ -466,6 +469,16 @@ typedef struct {
 
     /* F1 Info screen tab */
     info_tab_t info_tab;
+
+    /* Bus configuration state (F8) */
+    struct {
+        int cursor;               /* Selected slot index */
+        int scroll_offset;        /* For scrolling */
+        int initialized;          /* 1 = buscfg_init() called */
+        int editing;              /* 1 = in edit mode for selected slot */
+        int edit_field;           /* 0=enable, 1=IRQ, 2=DMA, 3=IO, 4=Mem */
+        int isapnp_count;         /* Number of ISA PnP cards detected */
+    } busconfig;
 } app_state_t;
 
 /* Chipset database */
@@ -6618,6 +6631,684 @@ static void handle_inventory_keys(int key)
 }
 
 /*============================================================================
+ * SCREEN: BUS CONFIGURATION (F8) - EISA/MCA Slot Configuration
+ *============================================================================*/
+
+static void draw_busconfig_screen(void)
+{
+    buscfg_state_t *bs;
+    int i, y;
+    int start;
+    int visible = 12;  /* Lines available for slot list */
+    slot_config_t *slot;
+    char id_str[16];
+    const char *bus_name;
+
+    /* Initialize on first entry */
+    if (!g_state.busconfig.initialized) {
+        buscfg_init();
+        buscfg_enum_slots();
+
+        bs = buscfg_get_state();
+
+        /* Check for ISA PnP cards
+         * - EISA systems have ISA slots, so can have PnP cards
+         * - PCI/ISA systems have ISA slots, so can have PnP cards
+         * - MCA systems do NOT have ISA slots (MCA is incompatible with ISA) */
+        if (bs->bus_detected != BUS_MCA) {
+            int pnp_count = isapnp_init();
+            if (pnp_count > 0) {
+                int base_slot = bs->slot_count;  /* Append after EISA slots */
+
+                isapnp_enum_devices();
+
+                /* If no EISA bus, this is pure ISA PnP mode */
+                if (bs->bus_detected == 0) {
+                    bs->bus_detected = BUS_ISAPNP;
+                    base_slot = 0;
+                }
+
+                /* Add ISA PnP cards to slot list (after any EISA slots) */
+                for (i = 0; i < pnp_count && (base_slot + i) < EISA_MAX_SLOTS; i++) {
+                    isapnp_read_card(i + 1, &bs->slots[base_slot + i]);
+                }
+                bs->slot_count = base_slot + pnp_count;
+
+                /* Store PnP count for display */
+                g_state.busconfig.isapnp_count = pnp_count;
+            }
+        }
+
+        /* Run auto-config to set up non-conflicting resources */
+        buscfg_auto_config();
+        g_state.busconfig.initialized = 1;
+    }
+
+    bs = buscfg_get_state();
+    start = g_state.busconfig.scroll_offset;
+
+    /* Title based on detected bus */
+    if (bs->bus_detected == BUS_EISA) {
+        bus_name = "EISA";
+        if (g_state.busconfig.isapnp_count > 0) {
+            /* EISA + ISA PnP cards */
+            video_printf(2, 3, ATTR_HIGHLIGHT, "EISA + ISA PnP CONFIGURATION (+%d PnP)",
+                g_state.busconfig.isapnp_count);
+        } else {
+            video_puts(2, 3, "EISA BUS CONFIGURATION", ATTR_HIGHLIGHT);
+        }
+        /* Show EISA system board info in upper right */
+        video_printf(50, 3, ATTR_DIM, "%.28s", buscfg_get_eisa_sysboard_name());
+    } else if (bs->bus_detected == BUS_MCA) {
+        bus_name = "MCA";
+        /* Show MCA bus width and speed in title */
+        video_printf(2, 3, ATTR_HIGHLIGHT, "MCA BUS CONFIGURATION (%d-bit @ %d MHz)",
+            buscfg_get_mca_bus_width(), buscfg_get_mca_bus_speed());
+        /* Show PS/2 model name in upper right */
+        video_printf(50, 3, ATTR_DIM, "%.28s", buscfg_get_mca_model_name());
+    } else if (bs->bus_detected == BUS_ISAPNP) {
+        bus_name = "ISA PnP";
+        video_printf(2, 3, ATTR_HIGHLIGHT, "ISA PLUG AND PLAY CONFIGURATION (%d card%s)",
+            isapnp_get_card_count(), isapnp_get_card_count() != 1 ? "s" : "");
+    } else {
+        video_puts(2, 3, "BUS CONFIGURATION", ATTR_HIGHLIGHT);
+        video_puts(2, 5, "No configurable bus detected on this system.", ATTR_WARNING);
+        video_puts(2, 7, "This feature requires:", ATTR_DIM);
+        video_puts(4, 8, "- EISA system (486 EISA motherboard)", ATTR_DIM);
+        video_puts(4, 9, "- MCA system (IBM PS/2 Model 50/60/70/80)", ATTR_DIM);
+        video_puts(4, 10, "- ISA Plug and Play cards (Sound/Network)", ATTR_DIM);
+        video_puts(2, 12, "Use F7 (Inventory) to view PCI/ISA devices.", ATTR_VALUE);
+        ui_draw_status_bar("No configurable bus detected");
+        return;
+    }
+
+    video_hline(2, 4, 24, 0xC4, ATTR_DIM);
+
+    /* Column headers */
+    if (bs->bus_detected == BUS_EISA) {
+        video_puts(2, 5, "Slot  ID        Enabled  IRQ  I/O     Name", ATTR_LABEL);
+    } else if (bs->bus_detected == BUS_MCA) {
+        video_puts(2, 5, "Slot  @ID    Enabled  IRQ  ARB  I/O     Name", ATTR_LABEL);
+    } else if (bs->bus_detected == BUS_ISAPNP) {
+        video_puts(2, 5, "CSN   ID        Active   IRQ  DMA  I/O     Name", ATTR_LABEL);
+    }
+    video_hline(2, 6, 76, 0xC4, ATTR_DIM);
+
+    /* Check if any slots found */
+    if (bs->slot_count == 0) {
+        if (bs->bus_detected == BUS_ISAPNP) {
+            video_puts(2, 8, "No ISA Plug and Play cards detected.", ATTR_DIM);
+        } else {
+            video_puts(2, 8, "No adapter cards detected in slots.", ATTR_DIM);
+        }
+        video_puts(2, 9, "Press R to rescan.", ATTR_VALUE);
+    } else {
+        /* Slot list */
+        for (i = 0; i < visible && (start + i) < bs->slot_count; i++) {
+            slot = &bs->slots[start + i];
+            unsigned char attr = (g_state.busconfig.cursor == start + i)
+                                 ? ATTR_SELECTED : ATTR_VALUE;
+            y = 7 + i;
+
+            /* Clear line */
+            video_hline(2, y, 76, ' ', attr);
+
+            /* Format slot ID - check individual slot's bus_type for mixed EISA+PnP */
+            if (slot->bus_type == BUS_ISAPNP) {
+                isapnp_format_id(slot->isapnp_vendor, slot->device_id, id_str);
+            } else {
+                buscfg_format_slot_id(slot, id_str);
+            }
+
+            /* Display based on individual slot's bus type (handles mixed EISA+PnP) */
+            if (slot->bus_type == BUS_EISA) {
+                /* EISA: Slot  ID        Enabled  IRQ  I/O     Name */
+                char irq_str[4];
+                if (slot->irq_count > 0 && slot->irqs[0].irq < 16)
+                    sprintf(irq_str, "%d", slot->irqs[0].irq);
+                else
+                    strcpy(irq_str, "---");
+                video_printf(2, y, attr, "%4d  %-8s  %-3s      %3s  %04Xh   %.28s",
+                    slot->slot,
+                    id_str,
+                    slot->enabled ? "Yes" : "No",
+                    irq_str,
+                    (slot->ioport_count > 0) ? slot->ioports[0].base : 0,
+                    slot->name);
+            } else if (slot->bus_type == BUS_MCA) {
+                /* MCA: Slot  @ID    Enabled  IRQ  ARB  I/O     Name */
+                /* ARB = Arbitration level from POS 4 bits 0-3 */
+                unsigned char arb = slot->pos[4] & 0x0F;
+                char irq_str[4];
+                if (slot->irq_count > 0 && slot->irqs[0].irq < 16)
+                    sprintf(irq_str, "%d", slot->irqs[0].irq);
+                else
+                    strcpy(irq_str, "---");
+                video_printf(2, y, attr, "%4d  %-6s  %-3s      %3s  %3d  %04Xh   %.24s",
+                    slot->slot,
+                    id_str,
+                    slot->enabled ? "Yes" : "No",
+                    irq_str,
+                    arb,
+                    (slot->ioport_count > 0) ? slot->ioports[0].base : 0,
+                    slot->name);
+            } else if (slot->bus_type == BUS_ISAPNP) {
+                /* ISA PnP: CSN   ID        Active   IRQ  DMA  I/O     Name */
+                char irq_str[4];
+                char dma_str[4];
+                if (slot->irq_count > 0 && slot->irqs[0].irq < 16)
+                    sprintf(irq_str, "%d", slot->irqs[0].irq);
+                else
+                    strcpy(irq_str, "---");
+                if (slot->dma_count > 0 && slot->dmas[0].channel < 8)
+                    sprintf(dma_str, "%d", slot->dmas[0].channel);
+                else
+                    strcpy(dma_str, "---");
+                video_printf(2, y, attr, " PnP  %-8s  %-3s      %3s  %3s  %04Xh   %.24s",
+                    id_str,
+                    slot->enabled ? "Yes" : "No",
+                    irq_str,
+                    dma_str,
+                    (slot->ioport_count > 0) ? slot->ioports[0].base : 0,
+                    slot->name);
+            }
+        }
+
+        /* Scroll indicator */
+        if (bs->slot_count > visible) {
+            video_printf(70, 5, ATTR_DIM, "[%d/%d]",
+                g_state.busconfig.cursor + 1, bs->slot_count);
+        }
+    }
+
+    /* Details panel for selected slot */
+    if (bs->slot_count > 0 && g_state.busconfig.cursor < bs->slot_count) {
+        int has_conflict = 0;
+        int ci;
+
+        slot = &bs->slots[g_state.busconfig.cursor];
+
+        video_hline(2, 19, 76, 0xC4, ATTR_DIM);
+        video_printf(2, 20, ATTR_LABEL, "Selected: %s", slot->name);
+
+        /* Check if this slot has conflicts */
+        for (ci = 0; ci < bs->conflict_count; ci++) {
+            if (bs->conflicts[ci].slot_a == slot->slot ||
+                bs->conflicts[ci].slot_b == slot->slot) {
+                has_conflict = 1;
+
+                /* Show conflict details */
+                if (bs->conflicts[ci].conflict_type & CONFLICT_IRQ) {
+                    video_puts(50, 20, ATTR_ERROR, "IRQ CONFLICT!");
+                } else if (bs->conflicts[ci].conflict_type & CONFLICT_DMA) {
+                    video_puts(50, 20, ATTR_ERROR, "DMA CONFLICT!");
+                } else if (bs->conflicts[ci].conflict_type & CONFLICT_IOPORT) {
+                    video_puts(50, 20, ATTR_ERROR, "I/O CONFLICT!");
+                } else if (bs->conflicts[ci].conflict_type & CONFLICT_MEMORY) {
+                    video_puts(50, 20, ATTR_ERROR, "MEM CONFLICT!");
+                }
+                break;
+            }
+        }
+
+        /* Show bus-specific details based on individual slot's bus type */
+        if (slot->bus_type == BUS_MCA) {
+            /* Show raw POS registers for MCA */
+            video_printf(2, 21, ATTR_DIM,
+                "POS: %02X %02X %02X %02X %02X %02X %02X %02X",
+                slot->pos[0], slot->pos[1], slot->pos[2], slot->pos[3],
+                slot->pos[4], slot->pos[5], slot->pos[6], slot->pos[7]);
+
+            /* Show MCA adapter capabilities */
+            if (slot->mca_bus_master) {
+                video_printf(2, 22, ATTR_VALUE, "Bus Master: ARB %d  %s  %s",
+                    slot->mca_arb_level,
+                    slot->mca_fairness ? "Fair" : "Burst",
+                    slot->mca_streaming ? "Stream" : "");
+            }
+        } else if (slot->bus_type == BUS_ISAPNP) {
+            /* Show ISA PnP details */
+            video_printf(2, 21, ATTR_DIM, "ISA PnP CSN: %d  LogDev: %d  Serial: %04X",
+                slot->isapnp_csn, slot->isapnp_logdev, slot->isapnp_serial);
+
+            /* Show all resources on detail line */
+            {
+                char res_str[60];
+                int rpos = 0;
+
+                res_str[0] = '\0';
+                if (slot->irq_count > 0) {
+                    rpos += sprintf(res_str + rpos, "IRQ=%d", slot->irqs[0].irq);
+                }
+                if (slot->dma_count > 0) {
+                    rpos += sprintf(res_str + rpos, "%sDMA=%d", rpos > 0 ? "  " : "",
+                        slot->dmas[0].channel);
+                }
+                if (slot->ioport_count > 0) {
+                    rpos += sprintf(res_str + rpos, "%sI/O=%04Xh", rpos > 0 ? "  " : "",
+                        slot->ioports[0].base);
+                    if (slot->ioport_count > 1) {
+                        rpos += sprintf(res_str + rpos, ",%04Xh", slot->ioports[1].base);
+                    }
+                }
+                if (slot->mem_count > 0) {
+                    rpos += sprintf(res_str + rpos, "%sMem=%lXh", rpos > 0 ? "  " : "",
+                        slot->mem_ranges[0].base);
+                }
+                if (rpos > 0) {
+                    video_printf(2, 22, ATTR_VALUE, "%s", res_str);
+                }
+            }
+        }
+
+        /* Show resources summary */
+        if (slot->enabled && !has_conflict) {
+            video_puts(50, 20, ATTR_SUCCESS, "OK");
+        }
+    }
+
+    /* Status bar - show conflict and modified status */
+    if (bs->conflict_count > 0) {
+        video_printf(50, 22, ATTR_ERROR, "[%d CONFLICT%s]",
+            bs->conflict_count, bs->conflict_count > 1 ? "S" : "");
+    }
+    if (bs->modified) {
+        video_puts(bs->conflict_count > 0 ? 66 : 60, 22, ATTR_WARNING, "[MODIFIED]");
+    }
+
+    if (bs->bus_detected == BUS_MCA) {
+        ui_draw_status_bar("Up/Dn=Sel  E=Enable  A=Auto  P=POS  S=Save  W=Export  R=Rescan");
+    } else if (bs->bus_detected == BUS_ISAPNP) {
+        ui_draw_status_bar("Up/Dn=Select  A=Activate  D=Deactivate  W=Export  R=Rescan");
+    } else if (bs->bus_detected == BUS_EISA && g_state.busconfig.isapnp_count > 0) {
+        /* Mixed EISA + ISA PnP mode */
+        ui_draw_status_bar("Up/Dn=Sel E=En A=Act/Auto D=Deact S=Save W=Export R=Rescan");
+    } else {
+        ui_draw_status_bar("Up/Dn=Select  E=Enable  A=AutoCfg  S=Save  W=Export  R=Rescan");
+    }
+}
+
+/*============================================================================
+ * POS REGISTER EDITOR DIALOG (MCA only)
+ *============================================================================*/
+
+static void show_pos_editor_dialog(slot_config_t *slot)
+{
+    int done = 0;
+    int key;
+    int cursor = 2;         /* Start at POS 2 (POS 0-1 are read-only) */
+    int nibble = 0;         /* 0 = high nibble, 1 = low nibble */
+    unsigned char new_val;
+    unsigned char old_vals[8];
+    int i;
+
+    /* Save original values for cancel */
+    for (i = 0; i < 8; i++) {
+        old_vals[i] = slot->pos[i];
+    }
+
+    while (!done) {
+        /* Draw dialog */
+        video_fill(15, 7, 50, 12, ' ', ATTR_NORMAL);
+        video_box(15, 7, 50, 12, ATTR_BOX);
+        video_printf(17, 7, ATTR_TITLE, " POS Editor - Slot %d ", slot->slot);
+
+        video_puts(17, 9, "POS registers (0-1 read-only):", ATTR_LABEL);
+
+        /* Draw POS register values */
+        for (i = 0; i < 8; i++) {
+            unsigned char attr;
+            int x = 17 + (i * 6);
+
+            if (i < 2) {
+                attr = ATTR_DIM;  /* Read-only registers */
+            } else if (i == cursor) {
+                attr = ATTR_SELECTED;
+            } else {
+                attr = ATTR_VALUE;
+            }
+
+            video_printf(x, 11, ATTR_LABEL, "  %d ", i);
+            video_printf(x, 12, attr, " %02X ", slot->pos[i]);
+        }
+
+        /* Show editing cursor */
+        if (cursor >= 2) {
+            int x = 17 + (cursor * 6) + 1;
+            if (nibble == 0) {
+                video_printf(x, 12, ATTR_HIGHLIGHT, "%X", (slot->pos[cursor] >> 4) & 0x0F);
+            } else {
+                video_printf(x + 1, 12, ATTR_HIGHLIGHT, "%X", slot->pos[cursor] & 0x0F);
+            }
+        }
+
+        /* POS 2 bit 0 explanation */
+        video_puts(17, 14, "POS 2 bit 0 = Card Enable", ATTR_DIM);
+        video_printf(17, 15, ATTR_DIM, "Current: %s",
+            (slot->pos[2] & 0x01) ? "ENABLED" : "DISABLED");
+
+        video_puts(17, 17, "Left/Right=Register  0-F=Edit", ATTR_DIM);
+        video_puts(17, 18, "Enter=Save  Esc=Cancel", ATTR_DIM);
+
+        key = get_key();
+
+        switch (key) {
+            case KEY_ESC:
+                /* Restore original values and exit */
+                for (i = 0; i < 8; i++) {
+                    slot->pos[i] = old_vals[i];
+                }
+                done = 1;
+                break;
+
+            case KEY_ENTER:
+                /* Check if values changed */
+                for (i = 2; i < 8; i++) {
+                    if (slot->pos[i] != old_vals[i]) {
+                        buscfg_get_state()->modified = 1;
+                        /* Write new POS values to hardware */
+                        buscfg_mca_write_pos(slot->slot, i, slot->pos[i]);
+                    }
+                }
+                /* Update enabled status based on POS 2 bit 0 */
+                slot->enabled = (slot->pos[2] & 0x01) ? 1 : 0;
+                /* Reparse resources from updated POS registers */
+                buscfg_check_conflicts();
+                done = 1;
+                break;
+
+            case KEY_LEFT:
+                if (cursor > 2) {
+                    cursor--;
+                    nibble = 0;
+                }
+                break;
+
+            case KEY_RIGHT:
+                if (cursor < 7) {
+                    cursor++;
+                    nibble = 0;
+                }
+                break;
+
+            case KEY_TAB:
+                /* Toggle between nibbles */
+                nibble = 1 - nibble;
+                break;
+
+            default:
+                /* Handle hex digit input */
+                if (cursor >= 2) {
+                    int digit = -1;
+
+                    if (key >= '0' && key <= '9') {
+                        digit = key - '0';
+                    } else if (key >= 'a' && key <= 'f') {
+                        digit = key - 'a' + 10;
+                    } else if (key >= 'A' && key <= 'F') {
+                        digit = key - 'A' + 10;
+                    }
+
+                    if (digit >= 0) {
+                        new_val = slot->pos[cursor];
+                        if (nibble == 0) {
+                            new_val = (new_val & 0x0F) | (digit << 4);
+                            nibble = 1;  /* Move to low nibble */
+                        } else {
+                            new_val = (new_val & 0xF0) | digit;
+                            /* Move to next register */
+                            if (cursor < 7) {
+                                cursor++;
+                                nibble = 0;
+                            }
+                        }
+                        slot->pos[cursor - (nibble == 0 ? 1 : 0)] = new_val;
+                    }
+                }
+                break;
+        }
+    }
+}
+
+static void handle_busconfig_keys(int key)
+{
+    buscfg_state_t *bs = buscfg_get_state();
+    int visible = 12;
+    slot_config_t *slot;
+
+    if (bs->bus_detected == 0) {
+        /* No bus, ignore all keys except standard navigation */
+        return;
+    }
+
+    switch (key) {
+        case KEY_UP:
+            if (g_state.busconfig.cursor > 0) {
+                g_state.busconfig.cursor--;
+                if (g_state.busconfig.cursor < g_state.busconfig.scroll_offset)
+                    g_state.busconfig.scroll_offset = g_state.busconfig.cursor;
+            }
+            break;
+
+        case KEY_DOWN:
+            if (g_state.busconfig.cursor < bs->slot_count - 1) {
+                g_state.busconfig.cursor++;
+                if (g_state.busconfig.cursor >= g_state.busconfig.scroll_offset + visible)
+                    g_state.busconfig.scroll_offset = g_state.busconfig.cursor - visible + 1;
+            }
+            break;
+
+        case 0x4900:  /* Page Up */
+            g_state.busconfig.cursor -= visible;
+            if (g_state.busconfig.cursor < 0)
+                g_state.busconfig.cursor = 0;
+            if (g_state.busconfig.cursor < g_state.busconfig.scroll_offset)
+                g_state.busconfig.scroll_offset = g_state.busconfig.cursor;
+            break;
+
+        case 0x5100:  /* Page Down */
+            g_state.busconfig.cursor += visible;
+            if (g_state.busconfig.cursor >= bs->slot_count)
+                g_state.busconfig.cursor = bs->slot_count - 1;
+            if (g_state.busconfig.cursor < 0)
+                g_state.busconfig.cursor = 0;
+            if (g_state.busconfig.cursor >= g_state.busconfig.scroll_offset + visible)
+                g_state.busconfig.scroll_offset = g_state.busconfig.cursor - visible + 1;
+            break;
+
+        case 0x4700:  /* Home */
+            g_state.busconfig.cursor = 0;
+            g_state.busconfig.scroll_offset = 0;
+            break;
+
+        case 0x4F00:  /* End */
+            g_state.busconfig.cursor = bs->slot_count - 1;
+            if (g_state.busconfig.cursor < 0)
+                g_state.busconfig.cursor = 0;
+            if (g_state.busconfig.cursor >= visible)
+                g_state.busconfig.scroll_offset = g_state.busconfig.cursor - visible + 1;
+            break;
+
+        case 'e':
+        case 'E':
+            /* Toggle enable/disable for selected slot */
+            if (bs->slot_count > 0 && g_state.busconfig.cursor < bs->slot_count) {
+                int conf_count;
+                slot = &bs->slots[g_state.busconfig.cursor];
+                if (ui_confirm_dialog(slot->enabled ?
+                        "Disable this adapter?" : "Enable this adapter?")) {
+                    buscfg_slot_enable(slot->slot, !slot->enabled);
+                    slot->enabled = !slot->enabled;
+                    /* Re-check conflicts after enabling */
+                    conf_count = buscfg_check_conflicts();
+                    if (slot->enabled) {
+                        if (conf_count > 0) {
+                            ui_draw_status_bar("Adapter enabled - WARNING: conflicts detected!");
+                        } else {
+                            ui_draw_status_bar("Adapter enabled");
+                        }
+                    } else {
+                        ui_draw_status_bar("Adapter disabled");
+                    }
+                }
+            }
+            break;
+
+        case 'p':
+        case 'P':
+            /* Edit POS registers (MCA only) */
+            if (bs->bus_detected == BUS_MCA && bs->slot_count > 0) {
+                slot = &bs->slots[g_state.busconfig.cursor];
+                show_pos_editor_dialog(slot);
+            }
+            break;
+
+        case 's':
+        case 'S':
+            /* Save configuration to NVM */
+            if (bs->modified) {
+                /* Check for conflicts before saving */
+                if (bs->conflict_count > 0) {
+                    if (!ui_confirm_dialog("Warning: Conflicts exist! Save anyway?")) {
+                        ui_draw_status_bar("Save cancelled - resolve conflicts first");
+                        break;
+                    }
+                }
+                if (ui_confirm_dialog("Save configuration to NVM?")) {
+                    if (buscfg_save_nvm() == BUSCFG_OK) {
+                        ui_draw_status_bar("Configuration saved to NVM");
+                    } else {
+                        ui_draw_status_bar("ERROR: Failed to save configuration");
+                    }
+                }
+            } else {
+                ui_draw_status_bar("No changes to save");
+            }
+            break;
+
+        case 'r':
+        case 'R':
+            /* Rescan slots */
+            ui_draw_status_bar("Rescanning...");
+            if (bs->bus_detected == BUS_ISAPNP) {
+                /* Re-initialize ISA PnP */
+                int pnp_count = isapnp_init();
+                if (pnp_count > 0) {
+                    int ri;
+                    isapnp_enum_devices();
+                    bs->slot_count = pnp_count;
+                    for (ri = 0; ri < pnp_count && ri < ISAPNP_MAX_CARDS; ri++) {
+                        isapnp_read_card(ri + 1, &bs->slots[ri]);
+                    }
+                } else {
+                    bs->slot_count = 0;
+                }
+            } else {
+                buscfg_enum_slots();
+            }
+            g_state.busconfig.cursor = 0;
+            g_state.busconfig.scroll_offset = 0;
+            break;
+
+        case 'a':
+        case 'A':
+            /* Check selected slot type for mixed bus support */
+            if (bs->slot_count > 0 && g_state.busconfig.cursor < bs->slot_count) {
+                slot = &bs->slots[g_state.busconfig.cursor];
+
+                if (slot->bus_type == BUS_ISAPNP) {
+                    /* ISA PnP: Activate logical device */
+                    if (!slot->enabled) {
+                        if (isapnp_activate(slot->isapnp_csn, slot->isapnp_logdev, 1)
+                                == BUSCFG_OK) {
+                            slot->enabled = 1;
+                            ui_draw_status_bar("PnP device activated");
+                        } else {
+                            ui_draw_status_bar("ERROR: Failed to activate device");
+                        }
+                    } else {
+                        ui_draw_status_bar("Device is already active");
+                    }
+                } else {
+                    /* EISA/MCA: Run auto-configuration */
+                    int conflicts;
+                    ui_draw_status_bar("Running auto-configuration...");
+                    conflicts = buscfg_auto_config();
+                    if (conflicts == 0) {
+                        ui_draw_status_bar("Auto-config complete - no conflicts");
+                    } else {
+                        char msg[60];
+                        sprintf(msg, "Auto-config complete - %d conflict%s remain",
+                            conflicts, conflicts > 1 ? "s" : "");
+                        ui_draw_status_bar(msg);
+                    }
+                }
+            }
+            break;
+
+        case 'd':
+        case 'D':
+            /* ISA PnP: Deactivate device (works in pure PnP or mixed mode) */
+            if (bs->slot_count > 0 && g_state.busconfig.cursor < bs->slot_count) {
+                slot = &bs->slots[g_state.busconfig.cursor];
+                if (slot->bus_type == BUS_ISAPNP) {
+                    if (slot->enabled) {
+                        if (ui_confirm_dialog("Deactivate this PnP device?")) {
+                            if (isapnp_activate(slot->isapnp_csn, slot->isapnp_logdev, 0)
+                                    == BUSCFG_OK) {
+                                slot->enabled = 0;
+                                ui_draw_status_bar("PnP device deactivated");
+                            } else {
+                                ui_draw_status_bar("ERROR: Failed to deactivate device");
+                            }
+                        }
+                    } else {
+                        ui_draw_status_bar("Device is already inactive");
+                    }
+                } else {
+                    ui_draw_status_bar("D key only works for ISA PnP devices");
+                }
+            }
+            break;
+
+        case 'c':
+        case 'C':
+            /* Check/validate configuration */
+            {
+                int conflicts = buscfg_check_conflicts();
+                if (conflicts == 0) {
+                    ui_draw_status_bar("Configuration valid - no conflicts detected");
+                } else {
+                    char msg[60];
+                    sprintf(msg, "Warning: %d resource conflict%s detected",
+                        conflicts, conflicts > 1 ? "s" : "");
+                    ui_draw_status_bar(msg);
+                }
+            }
+            break;
+
+        case 'w':
+        case 'W':
+            /* Export configuration report to file */
+            {
+                const char *filename = "BUSCFG.TXT";
+                ui_draw_status_bar("Exporting configuration report...");
+                if (buscfg_export_report(filename) == BUSCFG_OK) {
+                    char msg[60];
+                    sprintf(msg, "Report saved to %s", filename);
+                    ui_draw_status_bar(msg);
+                } else {
+                    ui_draw_status_bar("ERROR: Failed to write report file");
+                }
+            }
+            break;
+
+        default:
+            break;
+    }
+}
+
+/*============================================================================
  * KEY HANDLING
  *============================================================================*/
 
@@ -7157,6 +7848,9 @@ static void draw_screen(void)
         case SCREEN_INVENTORY:
             draw_inventory_screen();
             break;
+        case SCREEN_BUSCONFIG:
+            draw_busconfig_screen();
+            break;
         default:
             break;
     }
@@ -7199,6 +7893,9 @@ static int main_loop(void)
                 g_state.current_screen = SCREEN_INVENTORY;
                 enumerate_all_devices();  /* Auto-scan on F7 */
                 break;
+            case KEY_F8:
+                g_state.current_screen = SCREEN_BUSCONFIG;
+                break;
             case KEY_TAB:
                 g_state.current_screen = (g_state.current_screen + 1) % SCREEN_COUNT;
                 break;
@@ -7225,6 +7922,9 @@ static int main_loop(void)
                         break;
                     case SCREEN_INVENTORY:
                         handle_inventory_keys(key);
+                        break;
+                    case SCREEN_BUSCONFIG:
+                        handle_busconfig_keys(key);
                         break;
                     default:
                         break;

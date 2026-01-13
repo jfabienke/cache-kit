@@ -2,7 +2,7 @@
  * CK_HAL.H - CACHEKIT Hardware Abstraction Layer Interface
  *
  * Part of CACHEKIT v3.0
- * Last Updated: 2026-01-06 12:30:00 EST
+ * Last Updated: 2026-01-06 17:08:46 EST
  *
  * This header defines the HAL interface for chipset-independent access to
  * cache control, NC regions, shadow RAM, and A20 gate functionality.
@@ -190,6 +190,20 @@ void legacy_write_22_24(unsigned char reg, unsigned char val);
 /* VIA 0xA8/0xA9 ports */
 unsigned char legacy_read_a8_a9(unsigned char reg);
 void legacy_write_a8_a9(unsigned char reg, unsigned char val);
+
+/*============================================================================
+ * SAFE PORT ACCESS (defined in CK_IO.C)
+ *============================================================================*/
+
+/* Port validation - checks if port pair responds */
+int legacy_port_valid(unsigned int index_port, unsigned int data_port);
+
+/* Port probe - checks for floating bus condition */
+int safe_port_probe(unsigned int port);
+
+/* Safe read/write with documentation (no actual timeout in DOS real mode) */
+unsigned char safe_read_byte(unsigned int port);
+void safe_write_byte(unsigned int port, unsigned char val);
 
 /*============================================================================
  * CHIPSET OPS DECLARATIONS (defined in CK_*.C files)

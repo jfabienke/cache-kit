@@ -2,7 +2,7 @@
  * CK_VIDEO.C - CACHEKIT Video Layer Implementation
  *
  * Part of CACHEKIT v3.0
- * Last Updated: 2026-01-06 12:00:00 EST
+ * Last Updated: 2026-01-06 17:08:46 EST
  *
  * Direct VGA text-mode video output via segment B800h.
  * Uses BIOS INT 10h for mode save/restore and cursor control.
@@ -29,6 +29,8 @@ static unsigned char g_initialized = 0;
 
 void video_init(void)
 {
+    unsigned char current_mode;
+
     if (g_initialized) return;
 
     /* Get current video mode via INT 10h AH=0Fh */
@@ -36,10 +38,35 @@ void video_init(void)
         mov ah, 0Fh
         int 10h
         mov g_orig_mode, al
+        mov current_mode, al
     }
 
-    /* Set video memory pointer (color text mode B800:0000) */
-    g_video_mem = (unsigned int far *)0xB8000000L;
+    /*
+     * Validate we're in a text mode before accessing video memory.
+     * Mode 0x03 = 80x25 color text (B800:0000)
+     * Mode 0x07 = 80x25 mono text  (B000:0000)
+     *
+     * If in graphics mode or other incompatible mode, force mode 3.
+     * This prevents memory corruption from writing to B800h when
+     * the system is in graphics mode.
+     */
+    if (current_mode != 0x03 && current_mode != 0x07) {
+        /* Force mode 3 (80x25 color text) */
+        _asm {
+            mov ah, 00h
+            mov al, 03h
+            int 10h
+        }
+        current_mode = 0x03;
+    }
+
+    /* Set video memory pointer based on detected/forced mode */
+    if (current_mode == 0x07) {
+        g_video_mem = (unsigned int far *)0xB0000000L;  /* Mono at B000:0000 */
+    } else {
+        g_video_mem = (unsigned int far *)0xB8000000L;  /* Color at B800:0000 */
+    }
+
     g_initialized = 1;
 
     /* Hide cursor for cleaner UI */

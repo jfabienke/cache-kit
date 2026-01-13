@@ -81,7 +81,7 @@ void ui_draw_title_bar(const char *version, screen_t current)
 {
     static const char *tabs[] = {
         "F1 Info", "F2 NC", "F3 Test", "F4 Reg",
-        "F5 Bench", "F6 Prof", "F7 Cards"
+        "F5 Bench", "F6 Prof", "F7 Cards", "F8 Bus"
     };
     char title[32];
     int i, x;
@@ -95,7 +95,7 @@ void ui_draw_title_bar(const char *version, screen_t current)
 
     /* Draw tabs */
     x = 17;
-    for (i = 0; i < SCREEN_COUNT && i < 7; i++) {
+    for (i = 0; i < SCREEN_COUNT && i < 8; i++) {
         unsigned char attr = (current == i) ? ATTR_TAB_ACTIVE : ATTR_TAB_IDLE;
         if (current == i) {
             video_putc(x, 0, '[', ATTR_TITLE);

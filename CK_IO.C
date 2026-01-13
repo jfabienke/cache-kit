@@ -2,7 +2,7 @@
  * CK_IO.C - Low-Level I/O and PCI Configuration Space Access
  *
  * Part of CACHEKIT v3.0
- * Last Updated: 2026-01-05 18:50:00 EST
+ * Last Updated: 2026-01-06 17:08:46 EST
  *
  * Provides portable access to:
  * - PCI configuration space (via 0xCF8/0xCFC mechanism)
@@ -263,19 +263,58 @@ int legacy_port_valid(unsigned int index_port, unsigned int data_port)
 }
 
 /*============================================================================
- * SAFE PORT ACCESS WITH TIMEOUT
+ * SAFE PORT ACCESS
  *
- * Some operations may hang on incompatible hardware.
- * These wrappers provide basic protection.
+ * WARNING: True timeout protection is not possible in DOS real mode without
+ * hooking timer interrupts (INT 08h/INT 1Ch), which adds significant
+ * complexity and potential compatibility issues.
+ *
+ * KNOWN LIMITATION: If hardware hangs on port access (e.g., accessing
+ * non-existent chipset registers on incompatible hardware), only a
+ * hardware reset will recover the system. This is a fundamental limitation
+ * of x86 port I/O in real mode.
+ *
+ * MITIGATION STRATEGIES:
+ * 1. Use legacy_port_valid() to probe before accessing unknown ports
+ * 2. Use safe_port_probe() to check for floating bus conditions
+ * 3. Check pci_bus_present() before PCI operations
+ * 4. Validate chipset detection before writing to registers
+ *
+ * These wrappers exist primarily for documentation and future enhancement.
  *============================================================================*/
 
-/* Currently just direct wrappers - could add timeout logic if needed */
 unsigned char safe_read_byte(unsigned int port)
 {
+    /* Note: If hardware hangs here, no software recovery is possible in DOS */
     return io_read_byte(port);
 }
 
 void safe_write_byte(unsigned int port, unsigned char val)
 {
+    /* Note: If hardware hangs here, no software recovery is possible in DOS */
     io_write_byte(port, val);
+}
+
+/*
+ * Probe a port to check for floating bus condition.
+ * A floating bus often returns different values on consecutive reads,
+ * or returns 0xFF consistently. This can help detect unmapped ports.
+ *
+ * Returns: 1 if port appears valid (consistent reads), 0 if likely floating
+ */
+int safe_port_probe(unsigned int port)
+{
+    unsigned char val1, val2;
+
+    val1 = io_read_byte(port);
+    val2 = io_read_byte(port);
+
+    /* Floating bus may return different values on consecutive reads */
+    if (val1 != val2) {
+        return 0;  /* Inconsistent - likely floating */
+    }
+
+    /* 0xFF is common for unmapped ports, but also valid for some registers */
+    /* Caller should combine with other checks (e.g., signature validation) */
+    return 1;
 }
