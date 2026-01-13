@@ -334,13 +334,22 @@ NEW IN v3.1 (EISA/MCA BUS CONFIGURATION):
     * 32-byte LFSR initiation key sequence for card wake-up
     * Card isolation and automatic CSN (Card Select Number) assignment
     * Resource data parsing: IRQ, DMA, I/O ports, memory windows
-    * Embedded database of ~30 common ISA PnP cards:
-      - Sound: Creative SB16/AWE32/AWE64, ESS AudioDrive 688/1688/1868/1869,
-        Yamaha OPL3-SA/SAx, Crystal CS4231/4232/4236, OPTi 82C924/925/930/931,
-        Gravis UltraSound PnP, Aztech, MediaVision
-      - Network: 3Com EtherLink III (3C509B), Intel EtherExpress,
-        Realtek RTL8019 (NE2000 PnP), SMC Ultra/Elite PnP
-      - Modems: US Robotics, Hayes, Generic PCMCIA, various ISA modems
+    * Embedded database of 150+ common ISA PnP cards:
+      - Sound (100+ entries): Creative SB16/AWE32/AWE64/Vibra16/Live,
+        ESS ES688/1688/1868/1869/1878/1898, Yamaha OPL3-SA/SA2/SA3,
+        Crystal CS4231/4232/4235/4236/4237, OPTi 82C924/925/929/930/931,
+        Gravis UltraSound/MAX PnP, Aztech PRO16V/Galaxy/Nova,
+        Analog Devices AD1816, C-Media CMI8330/8338, Ensoniq AudioPCI,
+        Media Vision Pro AudioSpectrum, TerraTec EWS64, Turtle Beach Tropez/Pinnacle
+      - Network (17 entries): 3Com 3C509B/3C515/3C574/3C589,
+        Intel EtherExpress PRO/100, Realtek RTL8019/8029,
+        SMC EtherEZ/Elite16 Ultra, DEC DE200/201, Accton EN1660/2212
+      - Modems (28 entries): US Robotics Sportster/Courier 14.4-56K,
+        Hayes Accura/Optima, Practical Peripherals, Zoom 14.4-56K,
+        Motorola ModemSurfr/VoiceSurfr, Rockwell chipset modems
+      - System/Storage (15 entries): National Semi PC87306/307/308 Super I/O,
+        Adaptec AHA-1510/1520/1542 SCSI, Future Domain TMC-1610/1800,
+        UMC UM8663/8672 IDE, PnP system devices (PIC/Timer/DMA/RTC)
     * Activate/deactivate logical devices (A/D keys)
     * Works standalone (ISA/VLB systems) or combined with EISA
     * Mixed EISA + ISA PnP mode:
