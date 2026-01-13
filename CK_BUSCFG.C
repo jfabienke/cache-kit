@@ -3593,61 +3593,278 @@ typedef struct {
 } isapnp_card_entry_t;
 
 static const isapnp_card_entry_t g_isapnp_cards[] = {
-    /* Creative Labs Sound Cards */
-    { 0x0000630E, 0x0001, "Creative Sound Blaster 16 PnP" },
-    { 0x0000630E, 0x0031, "Creative Sound Blaster AWE32 PnP" },
-    { 0x0000630E, 0x0041, "Creative Sound Blaster AWE64 PnP" },
-    { 0x0000630E, 0x0051, "Creative Sound Blaster 16 Vibra" },
-    { 0x0000630E, 0x0061, "Creative Sound Blaster AWE64 Gold" },
-    { 0x0000630E, 0x0070, "Creative GameBlaster" },
-    { 0x0000630E, 0x7002, "Creative Modem Blaster" },
+    /*========================================================================
+     * CREATIVE LABS (CTL) - Sound Cards
+     *========================================================================*/
+    { 0x0000630E, 0x0001, "Creative SB16 PnP" },
+    { 0x0000630E, 0x0021, "Creative SB16 PnP (IDE)" },
+    { 0x0000630E, 0x0022, "Creative SB16 PnP (IDE)" },
+    { 0x0000630E, 0x0023, "Creative SB16 PnP" },
+    { 0x0000630E, 0x0024, "Creative SB AWE64 PnP" },
+    { 0x0000630E, 0x0025, "Creative SB16 PnP" },
+    { 0x0000630E, 0x0026, "Creative SB16 PnP" },
+    { 0x0000630E, 0x0027, "Creative SB16 PnP" },
+    { 0x0000630E, 0x0028, "Creative SB16 PnP" },
+    { 0x0000630E, 0x0029, "Creative SB AWE32 PnP" },
+    { 0x0000630E, 0x002A, "Creative SB AWE64 PnP" },
+    { 0x0000630E, 0x002B, "Creative SB AWE64 Gold" },
+    { 0x0000630E, 0x002C, "Creative SB16 PnP (CT4170)" },
+    { 0x0000630E, 0x0031, "Creative SB16 Device" },
+    { 0x0000630E, 0x0041, "Creative SB16 WaveSynth" },
+    { 0x0000630E, 0x0042, "Creative SB AWE64 WaveSynth" },
+    { 0x0000630E, 0x0043, "Creative SB16 WaveSynth" },
+    { 0x0000630E, 0x0044, "Creative SB AWE64 WaveSynth" },
+    { 0x0000630E, 0x0045, "Creative SB AWE64 Gold WaveSynth" },
+    { 0x0000630E, 0x0046, "Creative SB16 WaveSynth" },
+    { 0x0000630E, 0x0047, "Creative SB AWE64 WaveSynth" },
+    { 0x0000630E, 0x0051, "Creative SB16 Vibra PnP" },
+    { 0x0000630E, 0x0061, "Creative SB32 PnP" },
+    { 0x0000630E, 0x0070, "Creative SB Vibra16C PnP" },
+    { 0x0000630E, 0x0071, "Creative SB Vibra16CL PnP" },
+    { 0x0000630E, 0x0072, "Creative SB Vibra16X PnP" },
+    { 0x0000630E, 0x7001, "Creative Phone Blaster PnP" },
+    { 0x0000630E, 0x7002, "Creative Modem Blaster PnP" },
 
-    /* ESS Audio */
+    /*========================================================================
+     * ESS TECHNOLOGY (ESS) - Sound Cards
+     *========================================================================*/
+    { 0x00004535, 0x0100, "ESS ES688 AudioDrive" },
+    { 0x00004535, 0x0101, "ESS ES688 AudioDrive" },
+    { 0x00004535, 0x0102, "ESS ES1688 AudioDrive" },
+    { 0x00004535, 0x0104, "ESS ES1788 AudioDrive" },
+    { 0x00004535, 0x0106, "ESS ES1888 AudioDrive" },
+    { 0x00004535, 0x0108, "ESS ES888 AudioDrive" },
+    { 0x00004535, 0x0114, "ESS ES1788 AudioDrive" },
+    { 0x00004535, 0x0116, "ESS ES1888 AudioDrive" },
+    { 0x00004535, 0x0968, "ESS ES1688 AudioDrive" },
     { 0x00004535, 0x1868, "ESS ES1868 AudioDrive" },
     { 0x00004535, 0x1869, "ESS ES1869 AudioDrive" },
     { 0x00004535, 0x1878, "ESS ES1878 AudioDrive" },
     { 0x00004535, 0x1879, "ESS ES1879 AudioDrive" },
     { 0x00004535, 0x1887, "ESS ES1887 AudioDrive" },
     { 0x00004535, 0x1888, "ESS ES1888 AudioDrive" },
+    { 0x00004535, 0x8898, "ESS ES1898 AudioDrive" },
 
-    /* Yamaha */
+    /*========================================================================
+     * AZTECH (AZT) - Sound Cards
+     *========================================================================*/
+    { 0x00005441, 0x1008, "Aztech PRO16V (AZT2320)" },
+    { 0x00005441, 0x1605, "Aztech Sound Galaxy Nova 16" },
+    { 0x00005441, 0x1608, "Aztech Sound Galaxy Pro 16" },
+    { 0x00005441, 0x2001, "Aztech AZT3000 MPU401" },
+    { 0x00005441, 0x2316, "Aztech Sound Galaxy Washington 16" },
+    { 0x00005441, 0x2320, "Aztech Sound Galaxy 16 PnP" },
+    { 0x00005441, 0x3000, "Aztech PB Sound III 336" },
+    { 0x00005441, 0x3001, "Aztech AZT3000 Game Port" },
+    { 0x00005441, 0x4001, "Aztech AZT3000 Modem" },
+
+    /*========================================================================
+     * YAMAHA (YMH) - Sound Cards
+     *========================================================================*/
     { 0x0000A865, 0x0001, "Yamaha OPL3-SA" },
     { 0x0000A865, 0x0020, "Yamaha OPL3-SA2" },
+    { 0x0000A865, 0x0021, "Yamaha OPL3-SA2 (2nd)" },
     { 0x0000A865, 0x0030, "Yamaha OPL3-SA3" },
+    { 0x0000A865, 0x0031, "Yamaha OPL3-SA3 MPU401" },
+    { 0x0000A865, 0x0032, "Yamaha OPL3-SA3 Game Port" },
 
-    /* Crystal/Cirrus Audio */
-    { 0x00004352, 0x4231, "Crystal CS4231" },
-    { 0x00004352, 0x4232, "Crystal CS4232" },
-    { 0x00004352, 0x4236, "Crystal CS4236" },
+    /*========================================================================
+     * CRYSTAL/CIRRUS (CSC) - Sound Cards
+     *========================================================================*/
+    { 0x00004352, 0x0000, "Crystal CS4235 Control" },
+    { 0x00004352, 0x0001, "Crystal CS4236 Control" },
+    { 0x00004352, 0x0003, "Crystal CS4236B Control" },
+    { 0x00004352, 0x0010, "Crystal CS4235 Audio" },
+    { 0x00004352, 0x000F, "Crystal CS4236 Audio" },
+    { 0x00004352, 0x0100, "Crystal CS4610 GamePort" },
+    { 0x00004352, 0x0101, "Crystal CS4327 Audio" },
+    { 0x00004352, 0x4231, "Crystal CS4231 Audio" },
+    { 0x00004352, 0x4232, "Crystal CS4232 Audio" },
+    { 0x00004352, 0x4236, "Crystal CS4236 Audio" },
+    { 0x00004352, 0x4237, "Crystal CS4237 Audio" },
 
-    /* OPTi Audio */
-    { 0x00004F50, 0x0924, "OPTi 82C924" },
-    { 0x00004F50, 0x0925, "OPTi 82C925" },
-    { 0x00004F50, 0x0930, "OPTi 82C930" },
-    { 0x00004F50, 0x0931, "OPTi 82C931" },
+    /*========================================================================
+     * OPTi (OPT) - Sound Cards
+     *========================================================================*/
+    { 0x00004F50, 0x0924, "OPTi 82C924 Audio" },
+    { 0x00004F50, 0x0925, "OPTi 82C925 Audio" },
+    { 0x00004F50, 0x0930, "OPTi 82C930 Audio" },
+    { 0x00004F50, 0x0931, "OPTi 82C931 Audio" },
+    { 0x00004F50, 0x1931, "OPTi 82C931 MPU401" },
 
-    /* Gravis UltraSound */
-    { 0x00001048, 0x0100, "Gravis UltraSound PnP" },
+    /*========================================================================
+     * GRAVIS (GRV) - Sound Cards
+     *========================================================================*/
+    { 0x00001048, 0x0000, "Gravis UltraSound PnP" },
+    { 0x00001048, 0x0001, "Gravis UltraSound PnP Synth" },
+    { 0x00001048, 0x0002, "Gravis UltraSound PnP MIDI" },
+    { 0x00001048, 0x0003, "Gravis UltraSound PnP Joystick" },
+    { 0x00001048, 0x0100, "Gravis UltraSound PnP Pro" },
     { 0x00001048, 0x0110, "Gravis UltraSound MAX" },
 
-    /* 3Com Network */
-    { 0x00006D50, 0x5090, "3Com EtherLink III PnP" },
-    { 0x00006D50, 0x9050, "3Com Fast EtherLink PnP" },
+    /*========================================================================
+     * ANALOG DEVICES (ADV) - Sound Cards
+     *========================================================================*/
+    { 0x00004144, 0x1816, "AD1816A Audio" },
+    { 0x00004144, 0x0001, "AD1816A MPU401" },
+    { 0x00004144, 0x550A, "InterWave STB with TEA6330T" },
 
-    /* Intel Network */
-    { 0x0000494E, 0x1000, "Intel EtherExpress PRO/100 PnP" },
+    /*========================================================================
+     * C-MEDIA (CMI) - Sound Cards
+     *========================================================================*/
+    { 0x0000434D, 0x8330, "C-Media CMI8330 Audio" },
+    { 0x0000434D, 0x0001, "C-Media CMI8330 SB16 Compat" },
+    { 0x0000434D, 0x0002, "C-Media CMI8330 MPU401" },
+    { 0x0000434D, 0x8338, "C-Media CMI8338 Audio" },
 
-    /* NE2000 Clones */
-    { 0x00004A8C, 0x0000, "Realtek RTL8019 NE2000 PnP" },
-    { 0x00004A8C, 0x8019, "Realtek RTL8019AS NE2000 PnP" },
+    /*========================================================================
+     * ENSONIQ (ENS) - Sound Cards
+     *========================================================================*/
+    { 0x00004E51, 0x1300, "Ensoniq Soundscape PnP" },
+    { 0x00004E51, 0x1310, "Ensoniq Soundscape Elite PnP" },
+    { 0x00004E51, 0x2000, "Ensoniq AudioPCI S5016" },
 
-    /* Modems */
-    { 0x00005047, 0x1400, "Generic Modem PnP" },
-    { 0x00005553, 0x0014, "US Robotics Sportster PnP" },
-    { 0x00004855, 0x0144, "Hayes Accura PnP" },
+    /*========================================================================
+     * MEDIA VISION (MED) - Sound Cards
+     *========================================================================*/
+    { 0x00004D45, 0x0001, "Media Vision Pro Audio Spectrum" },
+    { 0x00004D45, 0x0010, "Media Vision Jazz16" },
 
-    /* Serial/Parallel Ports */
-    { 0x00004E53, 0x0100, "National Semi 16550 PnP" },
+    /*========================================================================
+     * TERRATEC (TER) - Sound Cards
+     *========================================================================*/
+    { 0x00005445, 0x1688, "TerraTec EWS88MT" },
+    { 0x00005445, 0x1689, "TerraTec EWS88D" },
+
+    /*========================================================================
+     * TURTLE BEACH (TBS) - Sound Cards
+     *========================================================================*/
+    { 0x00005442, 0x1600, "Turtle Beach Tropez" },
+    { 0x00005442, 0x1601, "Turtle Beach Tropez Plus" },
+    { 0x00005442, 0x1610, "Turtle Beach Maui" },
+    { 0x00005442, 0x1620, "Turtle Beach Rio" },
+    { 0x00005442, 0x1630, "Turtle Beach Fiji" },
+    { 0x00005442, 0x1640, "Turtle Beach Pinnacle" },
+    { 0x00005442, 0x1650, "Turtle Beach Malibu" },
+
+    /*========================================================================
+     * 3COM (TCM) - Network Cards
+     *========================================================================*/
+    { 0x00006D50, 0x5090, "3Com EtherLink III 3C509B-TP" },
+    { 0x00006D50, 0x5091, "3Com EtherLink III 3C509B-Combo" },
+    { 0x00006D50, 0x5094, "3Com EtherLink III 3C509B-Coax" },
+    { 0x00006D50, 0x5095, "3Com EtherLink III 3C509B PnP" },
+    { 0x00006D50, 0x5098, "3Com EtherLink III ISA" },
+    { 0x00006D50, 0x9050, "3Com Fast EtherLink 3C515" },
+
+    /*========================================================================
+     * INTEL (INT) - Network Cards
+     *========================================================================*/
+    { 0x0000494E, 0x0105, "Intel EtherExpress PRO/10" },
+    { 0x0000494E, 0x1000, "Intel EtherExpress PRO/100" },
+    { 0x0000494E, 0x1001, "Intel EtherExpress PRO/100+" },
+
+    /*========================================================================
+     * REALTEK (RTL) - Network Cards
+     *========================================================================*/
+    { 0x00004A8C, 0x8019, "Realtek RTL8019AS NE2000" },
+    { 0x00004A8C, 0x8029, "Realtek RTL8029 NE2000" },
+
+    /*========================================================================
+     * SMC (SMC) - Network Cards
+     *========================================================================*/
+    { 0x00004D53, 0x8416, "SMC EtherEZ 8416 Ultra" },
+    { 0x00004D53, 0x1660, "SMC Ultra16 Elite" },
+    { 0x00004D53, 0x8013, "SMC EtherCard Elite16" },
+
+    /*========================================================================
+     * DEC (DEC) - Network Cards
+     *========================================================================*/
+    { 0x00004445, 0x4250, "DEC EtherWORKS Turbo PnP" },
+
+    /*========================================================================
+     * ACCTON (ACC) - Network Cards
+     *========================================================================*/
+    { 0x00004143, 0x0200, "Accton EN1660 PnP" },
+    { 0x00004143, 0x0210, "Accton EN2209 PnP" },
+
+    /*========================================================================
+     * MODEMS - Various Vendors
+     *========================================================================*/
+    /* US Robotics */
+    { 0x00005553, 0x0011, "USR Sportster 14.4 PnP" },
+    { 0x00005553, 0x0013, "USR Sportster 28.8 PnP" },
+    { 0x00005553, 0x0014, "USR Sportster 33.6 PnP" },
+    { 0x00005553, 0x0016, "USR Courier V.Everything" },
+    { 0x00005553, 0x0440, "USR Sportster Flash" },
+    { 0x00005553, 0x0450, "USR Sportster Vi" },
+    { 0x00005553, 0x1440, "USR Sportster 56K" },
+
+    /* Hayes */
+    { 0x00004855, 0x0001, "Hayes Optima 14.4 PnP" },
+    { 0x00004855, 0x0011, "Hayes Optima 28.8 PnP" },
+    { 0x00004855, 0x0144, "Hayes Accura 144 PnP" },
+    { 0x00004855, 0x0288, "Hayes Accura 288 PnP" },
+    { 0x00004855, 0x0336, "Hayes Accura 336 PnP" },
+
+    /* Practical Peripherals */
+    { 0x00005050, 0x1414, "Practical PM14400FX PnP" },
+    { 0x00005050, 0x2828, "Practical PM28800 PnP" },
+    { 0x00005050, 0x3636, "Practical PM33600 PnP" },
+
+    /* Zoom */
+    { 0x00005A4F, 0x1414, "Zoom 14.4 PnP" },
+    { 0x00005A4F, 0x2828, "Zoom 28.8 PnP" },
+    { 0x00005A4F, 0x3636, "Zoom 33.6 PnP" },
+    { 0x00005A4F, 0x5600, "Zoom 56K PnP" },
+
+    /* Motorola */
+    { 0x00004D4F, 0x1500, "Motorola ModemSURFR 56K" },
+    { 0x00004D4F, 0x2888, "Motorola Montana 28.8" },
+
+    /* Rockwell/Conexant */
+    { 0x00005243, 0x1400, "Rockwell 14.4 PnP" },
+    { 0x00005243, 0x2800, "Rockwell 28.8 PnP" },
+    { 0x00005243, 0x3300, "Rockwell 33.6 PnP" },
+    { 0x00005243, 0x5600, "Rockwell 56K PnP" },
+
+    /* Generic Modems */
+    { 0x00005047, 0x1400, "Generic 14.4 Modem PnP" },
+    { 0x00005047, 0x2800, "Generic 28.8 Modem PnP" },
+    { 0x00005047, 0x3300, "Generic 33.6 Modem PnP" },
+
+    /*========================================================================
+     * SERIAL/PARALLEL/IDE - System Devices
+     *========================================================================*/
+    /* National Semiconductor Serial */
+    { 0x00004E53, 0x0100, "NSC 16550 UART" },
+    { 0x00004E53, 0x0101, "NSC 16650 UART" },
+    { 0x00004E53, 0x0102, "NSC 16750 UART" },
+
+    /* Standard System Devices */
+    { 0x00004E50, 0x0303, "PnP System COM Port" },
+    { 0x00004E50, 0x0400, "PnP System LPT Port" },
+    { 0x00004E50, 0x0401, "PnP ECP Printer Port" },
+    { 0x00004E50, 0x0501, "PnP Joystick" },
+
+    /*========================================================================
+     * SCSI CONTROLLERS
+     *========================================================================*/
+    /* Adaptec */
+    { 0x00004144, 0x1510, "Adaptec AHA-1510 PnP" },
+    { 0x00004144, 0x1520, "Adaptec AHA-1520 PnP" },
+    { 0x00004144, 0x1542, "Adaptec AHA-1542CP PnP" },
+
+    /* Future Domain */
+    { 0x00004644, 0x1600, "Future Domain TMC-1600 PnP" },
+    { 0x00004644, 0x1610, "Future Domain TMC-1610 PnP" },
+    { 0x00004644, 0x1800, "Future Domain TMC-1800 PnP" },
+
+    /*========================================================================
+     * CONTROLLERS - IDE/Multi-I/O
+     *========================================================================*/
+    { 0x00005543, 0x0091, "UMC 8672 IDE" },
+    { 0x00005543, 0x0092, "UMC 8672A IDE" },
 
     { 0, 0, NULL }  /* Terminator */
 };
