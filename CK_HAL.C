@@ -35,17 +35,13 @@ const chipset_ops_t *g_hal = NULL;  /* Set by detect_chipset_hal() */
 /*
  * Cache flush using WBINVD instruction (486+)
  * Writes back all modified cache lines, then invalidates.
+ * WBINVD opcode: 0F 09
  */
 int generic_wbinvd_flush(void)
 {
-    /* Watcom inline assembly for WBINVD */
-    #pragma aux do_wbinvd = \
-        ".486" \
-        "wbinvd" \
-        modify exact [];
-    extern void do_wbinvd(void);
-
-    do_wbinvd();
+    _asm {
+        db 0Fh, 09h     /* WBINVD - Write Back and Invalidate Data Cache */
+    }
     return HAL_OK;
 }
 
@@ -53,16 +49,13 @@ int generic_wbinvd_flush(void)
  * Cache flush using INVD instruction (386, no writeback)
  * WARNING: This invalidates WITHOUT writing back - data loss possible!
  * Only use on write-through caches or when cache is known clean.
+ * INVD opcode: 0F 08
  */
 int generic_invd_flush(void)
 {
-    #pragma aux do_invd = \
-        ".386" \
-        "invd" \
-        modify exact [];
-    extern void do_invd(void);
-
-    do_invd();
+    _asm {
+        db 0Fh, 08h     /* INVD - Invalidate Data Cache (no writeback) */
+    }
     return HAL_OK;
 }
 

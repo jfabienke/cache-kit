@@ -63,16 +63,20 @@ extern int hal_stub_nc_read(int idx, nc_region_t *r);
 
 /*
  * Read legacy chipset register via 0x22/0x23
+ * Note: This is a local shortcut using default ports.
+ * The CK_HAL.H version takes explicit port arguments.
  */
-static unsigned char legacy_read_reg(unsigned char reg)
+static unsigned char legacy_read_default(unsigned char reg)
 {
     return legacy_read_22_23(reg);
 }
 
 /*
  * Write legacy chipset register via 0x22/0x23
+ * Note: This is a local shortcut using default ports.
+ * The CK_HAL.H version takes explicit port arguments.
  */
-static void legacy_write_reg(unsigned char reg, unsigned char val)
+static void legacy_write_default(unsigned char reg, unsigned char val)
 {
     legacy_write_22_23(reg, val);
 }
@@ -85,7 +89,7 @@ static int legacy_reg_read(int reg)
     if (reg < 0 || reg > 0xFF) {
         return -1;
     }
-    return legacy_read_reg((unsigned char)reg);
+    return legacy_read_default((unsigned char)reg);
 }
 
 /*
@@ -96,7 +100,7 @@ static int legacy_reg_write(int reg, int val)
     if (reg < 0 || reg > 0xFF || val < 0 || val > 0xFF) {
         return HAL_ERR_PARAM;
     }
-    legacy_write_reg((unsigned char)reg, (unsigned char)val);
+    legacy_write_default((unsigned char)reg, (unsigned char)val);
     return HAL_OK;
 }
 
@@ -131,13 +135,13 @@ static int neat_probe(void)
     }
 
     /* NEAT has characteristic patterns in control register */
-    id = legacy_read_reg(NEAT_CONTROL_REG);
+    id = legacy_read_default(NEAT_CONTROL_REG);
 
     /* NEAT control reg typically has bits 7:2 with some set pattern */
     /* Accept if not all-FF and not all-00 */
     if (id != 0xFF && id != 0x00) {
         /* Additional verification: check shadow register exists */
-        unsigned char shadow = legacy_read_reg(0x19);
+        unsigned char shadow = legacy_read_default(0x19);
         if (shadow != 0xFF) {
             return 1;
         }
@@ -151,13 +155,13 @@ static int neat_probe(void)
  */
 static int neat_a20_get(void)
 {
-    unsigned char val = legacy_read_reg(NEAT_CONTROL_REG);
+    unsigned char val = legacy_read_default(NEAT_CONTROL_REG);
     return (val & NEAT_A20_BIT) ? 1 : 0;
 }
 
 static int neat_a20_set(int enable)
 {
-    unsigned char val = legacy_read_reg(NEAT_CONTROL_REG);
+    unsigned char val = legacy_read_default(NEAT_CONTROL_REG);
 
     if (enable) {
         val |= NEAT_A20_BIT;
@@ -165,7 +169,7 @@ static int neat_a20_set(int enable)
         val &= ~NEAT_A20_BIT;
     }
 
-    legacy_write_reg(NEAT_CONTROL_REG, val);
+    legacy_write_default(NEAT_CONTROL_REG, val);
     return HAL_OK;
 }
 
@@ -235,11 +239,11 @@ static int neat386_probe(void)
         return 0;
     }
 
-    id = legacy_read_reg(NEAT_CONTROL_REG);
+    id = legacy_read_default(NEAT_CONTROL_REG);
 
     if (id != 0xFF && id != 0x00) {
         /* Check for 386SX indicator - bit pattern in register 0x1E */
-        id2 = legacy_read_reg(0x1E);
+        id2 = legacy_read_default(0x1E);
         if (id2 & 0x10) {  /* 386SX support indicator */
             return 1;
         }
@@ -321,7 +325,7 @@ static int headland_ht12_probe(void)
     }
 
     /* Check register 0x17 for HT12 ID pattern */
-    id = legacy_read_reg(0x17);
+    id = legacy_read_default(0x17);
 
     /* HT12: bits 7:4 = 0001b (0x1x pattern) */
     return ((id & 0xF0) == 0x10) ? 1 : 0;
@@ -332,13 +336,13 @@ static int headland_ht12_probe(void)
  */
 static int headland_cache_get(void)
 {
-    unsigned char val = legacy_read_reg(HEADLAND_CACHE_REG);
+    unsigned char val = legacy_read_default(HEADLAND_CACHE_REG);
     return (val & HEADLAND_CACHE_ENABLE) ? CACHE_ENABLED : CACHE_DISABLED;
 }
 
 static int headland_cache_set(int enable)
 {
-    unsigned char val = legacy_read_reg(HEADLAND_CACHE_REG);
+    unsigned char val = legacy_read_default(HEADLAND_CACHE_REG);
 
     if (enable) {
         val |= HEADLAND_CACHE_ENABLE;
@@ -346,7 +350,7 @@ static int headland_cache_set(int enable)
         val &= ~HEADLAND_CACHE_ENABLE;
     }
 
-    legacy_write_reg(HEADLAND_CACHE_REG, val);
+    legacy_write_default(HEADLAND_CACHE_REG, val);
     return HAL_OK;
 }
 
@@ -407,7 +411,7 @@ static int headland_ht18_probe(void)
     }
 
     /* Check register 0x17 for HT18 ID pattern */
-    id = legacy_read_reg(0x17);
+    id = legacy_read_default(0x17);
 
     /* HT18: bits 7:4 = 0011b (0x3x pattern) */
     return ((id & 0xF0) == 0x30) ? 1 : 0;
@@ -491,7 +495,7 @@ static int vlsi_probe(void)
     }
 
     /* VLSI uses register 0xFF as identifier */
-    id = legacy_read_reg(VLSI_ID_REG);
+    id = legacy_read_default(VLSI_ID_REG);
 
     /* VLSI pattern: 0xVx where V indicates VLSI */
     return ((id & 0xF0) == 0xA0 || (id & 0xF0) == 0xB0) ? 1 : 0;
@@ -502,13 +506,13 @@ static int vlsi_probe(void)
  */
 static int vlsi_cache_get(void)
 {
-    unsigned char val = legacy_read_reg(VLSI_CACHE_REG);
+    unsigned char val = legacy_read_default(VLSI_CACHE_REG);
     return (val & VLSI_CACHE_ENABLE) ? CACHE_ENABLED : CACHE_DISABLED;
 }
 
 static int vlsi_cache_set(int enable)
 {
-    unsigned char val = legacy_read_reg(VLSI_CACHE_REG);
+    unsigned char val = legacy_read_default(VLSI_CACHE_REG);
 
     if (enable) {
         val |= VLSI_CACHE_ENABLE;
@@ -516,7 +520,7 @@ static int vlsi_cache_set(int enable)
         val &= ~VLSI_CACHE_ENABLE;
     }
 
-    legacy_write_reg(VLSI_CACHE_REG, val);
+    legacy_write_default(VLSI_CACHE_REG, val);
     return HAL_OK;
 }
 
@@ -576,11 +580,11 @@ static int vlsi_320_probe(void)
         return 0;
     }
 
-    id = legacy_read_reg(VLSI_ID_REG);
+    id = legacy_read_default(VLSI_ID_REG);
 
     if ((id & 0xF0) == 0xA0 || (id & 0xF0) == 0xB0) {
         /* Check for 386 indicator in another register */
-        id2 = legacy_read_reg(0x00);
+        id2 = legacy_read_default(0x00);
         if (id2 & 0x40) {  /* 386SX indicator */
             return 1;
         }
@@ -657,7 +661,7 @@ static int via310_probe(void)
     }
 
     /* VIA uses register 0x15 as ID indicator */
-    id = legacy_read_reg(0x15);
+    id = legacy_read_default(0x15);
 
     /* VIA 310 pattern: 0x3x */
     return ((id & 0xF0) == 0x30) ? 1 : 0;
@@ -665,13 +669,13 @@ static int via310_probe(void)
 
 static int via310_cache_get(void)
 {
-    unsigned char val = legacy_read_reg(VIA310_CACHE_REG);
+    unsigned char val = legacy_read_default(VIA310_CACHE_REG);
     return (val & VIA310_CACHE_BIT) ? CACHE_ENABLED : CACHE_DISABLED;
 }
 
 static int via310_cache_set(int enable)
 {
-    unsigned char val = legacy_read_reg(VIA310_CACHE_REG);
+    unsigned char val = legacy_read_default(VIA310_CACHE_REG);
 
     if (enable) {
         val |= VIA310_CACHE_BIT;
@@ -679,7 +683,7 @@ static int via310_cache_set(int enable)
         val &= ~VIA310_CACHE_BIT;
     }
 
-    legacy_write_reg(VIA310_CACHE_REG, val);
+    legacy_write_default(VIA310_CACHE_REG, val);
     return HAL_OK;
 }
 
@@ -742,7 +746,7 @@ static int vlsi_311_probe(void)
         return 0;
     }
 
-    id = legacy_read_reg(VLSI_ID_REG);
+    id = legacy_read_default(VLSI_ID_REG);
 
     /* VL82C311: specific ID pattern 0xBx */
     return ((id & 0xF0) == 0xB0) ? 1 : 0;
@@ -819,7 +823,7 @@ static int ct_peak_probe(void)
         return 0;
     }
 
-    id = legacy_read_reg(0x17);
+    id = legacy_read_default(0x17);
 
     /* PEAK: ID == 0x21 */
     return (id == 0x21) ? 1 : 0;
@@ -827,13 +831,13 @@ static int ct_peak_probe(void)
 
 static int ct_cache_get(void)
 {
-    unsigned char val = legacy_read_reg(CT_CACHE_REG);
+    unsigned char val = legacy_read_default(CT_CACHE_REG);
     return (val & CT_CACHE_ENABLE) ? CACHE_ENABLED : CACHE_DISABLED;
 }
 
 static int ct_cache_set(int enable)
 {
-    unsigned char val = legacy_read_reg(CT_CACHE_REG);
+    unsigned char val = legacy_read_default(CT_CACHE_REG);
 
     if (enable) {
         val |= CT_CACHE_ENABLE;
@@ -841,7 +845,7 @@ static int ct_cache_set(int enable)
         val &= ~CT_CACHE_ENABLE;
     }
 
-    legacy_write_reg(CT_CACHE_REG, val);
+    legacy_write_default(CT_CACHE_REG, val);
     return HAL_OK;
 }
 
@@ -901,7 +905,7 @@ static int ct_scat_probe(void)
         return 0;
     }
 
-    id = legacy_read_reg(0x17);
+    id = legacy_read_default(0x17);
 
     /* SCAT: ID == 0x11 */
     return (id == 0x11) ? 1 : 0;
@@ -967,7 +971,7 @@ static int ali_finis_probe(void)
         return 0;
     }
 
-    id = legacy_read_reg(0x17);
+    id = legacy_read_default(0x17);
 
     /* ALi Finis: ID == 0x12 */
     return (id == 0x12) ? 1 : 0;
@@ -1032,7 +1036,7 @@ static int ali_m1217_probe(void)
         return 0;
     }
 
-    id = legacy_read_reg(0x17);
+    id = legacy_read_default(0x17);
 
     /* ALi M1217: ID == 0x17 */
     return (id == 0x17) ? 1 : 0;
@@ -1097,7 +1101,7 @@ static int headland_ht101_probe(void)
         return 0;
     }
 
-    id = legacy_read_reg(0x17);
+    id = legacy_read_default(0x17);
 
     /* HT101: bits 7:4 = 0000b (0x0x pattern) */
     return ((id & 0xF0) == 0x00 && id != 0x00) ? 1 : 0;
@@ -1156,7 +1160,7 @@ static int headland_ht102_probe(void)
         return 0;
     }
 
-    id = legacy_read_reg(0x17);
+    id = legacy_read_default(0x17);
 
     /* HT102: bits 7:4 = 0010b (0x2x pattern) */
     return ((id & 0xF0) == 0x20) ? 1 : 0;

@@ -84,6 +84,12 @@ const char *enum_lookup_mca_name(unsigned int adapter_id);
 const char *enum_lookup_isapnp_name(unsigned long pnp_id);
 
 /*============================================================================
+ * ACPI/PCIE SIGNATURES
+ *============================================================================*/
+
+#define MCFG_SIGNATURE         0x4746434D  /* "MCFG" in little-endian */
+
+/*============================================================================
  * PCIE/MCFG STATE (read-only access)
  *============================================================================*/
 

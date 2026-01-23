@@ -2,7 +2,7 @@
 # MAKEFILE - Open Watcom build for Abacus DOS Utilities
 #
 # Part of the Abacus FPGA Project
-# Last Updated: 2026-01-06 12:45:00 EST
+# Last Updated: 2026-01-23 17:45:00 CET
 #
 # Usage:
 #   wmake              Build CACHEKIT (HAL-based v3.0)
@@ -12,6 +12,8 @@
 # Requirements:
 #   Open Watcom C/C++ (wcc, wlink)
 #   Set WATCOM environment variable
+#
+# Note: For macOS/Linux builds, use build_macos.sh script
 #
 
 #============================================================================

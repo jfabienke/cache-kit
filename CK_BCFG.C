@@ -84,6 +84,7 @@
 static buscfg_state_t g_buscfg_state;
 static unsigned char g_eisa_bios_vendor = EISA_VENDOR_UNKNOWN;
 static char g_eisa_bios_vendor_name[32] = "Unknown";
+static unsigned char g_eisa_int15_available = 0;  /* INT 15h AH=D8h support */
 
 /*============================================================================
  * EMBEDDED CARD DATABASE - EISA (~130 common adapter cards)
@@ -2452,8 +2453,7 @@ int buscfg_set_membase(unsigned char slot, unsigned char mem_idx, unsigned long 
  *
  *============================================================================*/
 
-/* Track INT 15h availability (detected during init) */
-static unsigned char g_eisa_int15_available = 0;
+/* Note: g_eisa_int15_available declared earlier in MODULE STATE section */
 
 /*----------------------------------------------------------------------------
  * COMPAQ/Generic Direct Port I/O NVM Access (0x800-0x802)
@@ -4144,10 +4144,11 @@ static void isapnp_parse_resources(unsigned char csn, slot_config_t *cfg)
 
                 case 0x04:  /* IRQ format */
                     if (cfg->irq_count < MAX_SLOT_IRQS) {
-                        unsigned int mask = isapnp_read_resource_byte();
+                        unsigned int mask;
+                        int irq;
+                        mask = isapnp_read_resource_byte();
                         mask |= isapnp_read_resource_byte() << 8;
                         /* Find first available IRQ from mask */
-                        int irq;
                         for (irq = 0; irq < 16; irq++) {
                             if (mask & (1 << irq)) {
                                 cfg->irqs[cfg->irq_count].irq = irq;
@@ -4162,8 +4163,9 @@ static void isapnp_parse_resources(unsigned char csn, slot_config_t *cfg)
 
                 case 0x05:  /* DMA format */
                     if (cfg->dma_count < MAX_SLOT_DMAS) {
-                        unsigned char mask = isapnp_read_resource_byte();
+                        unsigned char mask;
                         int dma;
+                        mask = isapnp_read_resource_byte();
                         for (dma = 0; dma < 8; dma++) {
                             if (mask & (1 << dma)) {
                                 cfg->dmas[cfg->dma_count].channel = dma;
@@ -4177,8 +4179,9 @@ static void isapnp_parse_resources(unsigned char csn, slot_config_t *cfg)
 
                 case 0x08:  /* I/O port descriptor */
                     if (cfg->ioport_count < MAX_SLOT_IOPORTS) {
-                        unsigned char info = isapnp_read_resource_byte();
+                        unsigned char info;
                         unsigned int min, max, size;
+                        info = isapnp_read_resource_byte();
                         min = isapnp_read_resource_byte();
                         min |= isapnp_read_resource_byte() << 8;
                         max = isapnp_read_resource_byte();
@@ -4188,12 +4191,14 @@ static void isapnp_parse_resources(unsigned char csn, slot_config_t *cfg)
                         cfg->ioports[cfg->ioport_count].base = min;
                         cfg->ioports[cfg->ioport_count].size = size;
                         cfg->ioport_count++;
+                        (void)info;  /* Suppress unused warning */
                     }
                     break;
 
                 case 0x09:  /* Fixed I/O port */
                     if (cfg->ioport_count < MAX_SLOT_IOPORTS) {
-                        unsigned int base, size;
+                        unsigned int base;
+                        unsigned int size;
                         base = isapnp_read_resource_byte();
                         base |= (isapnp_read_resource_byte() & 0x03) << 8;
                         size = isapnp_read_resource_byte();

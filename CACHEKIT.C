@@ -224,17 +224,7 @@ typedef struct {
     unsigned char info_only;      /* 1 = no cache/NC control, info only */
 } chipset_info_t;
 
-typedef enum {
-    SCREEN_INFO = 0,
-    SCREEN_NC_CONFIG,
-    SCREEN_CACHE_TEST,
-    SCREEN_REGISTERS,
-    SCREEN_BENCHMARK,
-    SCREEN_PROFILES,
-    SCREEN_INVENTORY,       /* F7 - Expansion Card Inventory */
-    SCREEN_BUSCONFIG,       /* F8 - EISA/MCA Bus Configuration */
-    SCREEN_COUNT
-} screen_t;
+/* screen_t is defined in CK_UI.H */
 
 /* NC Region live data (extended version with raw register storage)
  * Note: CK_HAL.H defines a simpler nc_region_t for HAL interface.
@@ -480,6 +470,9 @@ typedef struct {
         int isapnp_count;         /* Number of ISA PnP cards detected */
     } busconfig;
 } app_state_t;
+
+/* Global application state */
+static app_state_t g_state;
 
 /* Chipset database */
 static const struct {
@@ -1534,8 +1527,7 @@ static int toggle_a20_v2(unsigned char chipset_type, int enable)
     return 0;
 }
 
-/* Global state */
-static app_state_t g_state;
+/* Note: g_state is declared earlier in the file, after app_state_t typedef */
 
 /*============================================================================
  * I/O ACCESS
@@ -1617,7 +1609,13 @@ static void eisa_write_reg(unsigned char reg, unsigned char val)
 
 /*============================================================================
  * PCI CONFIGURATION SPACE ACCESS (for Pentium-era chipsets)
+ *
+ * In HAL builds (CK_HAL_H defined), PCI functions are provided by CK_IO.C.
+ * In legacy single-file builds, use these local implementations.
  *============================================================================*/
+
+#ifndef CK_HAL_H
+/* Legacy build: local PCI implementation */
 
 #define PCI_CONFIG_ADDR 0x0CF8
 #define PCI_CONFIG_DATA 0x0CFC
@@ -1718,6 +1716,16 @@ static int pci_present(void)
 {
     return pci_available();
 }
+
+#else
+/* HAL build: use PCI functions from CK_IO.C, provide compatibility macros */
+
+#define pci_available()     pci_bus_present()
+#define pci_present()       pci_bus_present()
+#define pci_read_config(b,d,f,r)   pci_read_config_dword(b,d,f,r)
+#define pci_write_config(b,d,f,r,v) pci_write_config_dword(b,d,f,r,v)
+
+#endif /* !CK_HAL_H */
 
 
 /*============================================================================
@@ -2324,6 +2332,15 @@ static int detect_pci_chipset(chipset_info_t *info)
     return 0;
 }
 
+/*============================================================================
+ * FORWARD DECLARATIONS - HAL Helper Functions
+ * (Defined later in file, but needed by chipset_read_reg/write_reg)
+ *============================================================================*/
+
+static int hal_is_available(void);
+static int hal_reg_read(int reg);
+static int hal_reg_write(int reg, int val);
+
 /* Check if chipset type uses PCI config space (vs legacy index/data ports) */
 static int is_pci_chipset(unsigned char type)
 {
@@ -2580,6 +2597,7 @@ static int is_486_or_better(void)
 {
     unsigned int result = 0;
     _asm {
+        .386
         pushfd
         pop eax
         mov ecx, eax
@@ -3841,9 +3859,9 @@ static unsigned long measure_cache_flush_time(void)
     start_hi = inp(PIT_COUNTER0);
 
     if (g_state.is_486) {
-        /* Use WBINVD instruction on 486+ */
+        /* Use WBINVD instruction on 486+ (opcode 0F 09) */
         _asm {
-            wbinvd
+            db 0Fh, 09h     /* WBINVD */
         }
     } else {
         /* Read loop through 2x cache size using extended memory area */
@@ -4020,7 +4038,7 @@ static void flush_cache(void)
     /* Legacy fallback */
     if (g_state.is_486) {
         _asm {
-            wbinvd
+            db 0Fh, 09h     /* WBINVD */
         }
     } else if (g_state.chipset.type == CHIPSET_MIC9391) {
         /* MIC 9391 has hardware flush trigger at Index 40h bit 1 */
@@ -4829,8 +4847,10 @@ static void toggle_cache_with_confirm(void)
 static void clear_nc_region(int region)
 {
     chipset_info_t *chip = &g_state.chipset;
+    unsigned char r0;
 
     if (region < 0 || region >= (int)chip->nc_regions) return;
+    (void)r0;  /* May not be used in all paths */
 
     switch (chip->type) {
         case CHIPSET_OPTI391:
@@ -4937,11 +4957,22 @@ static void clear_all_nc_regions(void)
     }
 }
 
+/*
+ * write_nc_region - Wrapper for write_nc_region_v2 using global chipset state
+ */
+static int write_nc_region(int region, unsigned long base_kb, unsigned long size_kb)
+{
+    return write_nc_region_v2(g_state.chipset.type, region, base_kb, size_kb);
+}
+
 static void auto_config_nc_region(unsigned long size_kb)
 {
     chipset_info_t *chip = &g_state.chipset;
     unsigned long base_kb;
-    unsigned char base_reg, size_reg;
+    unsigned char base_reg, size_reg, r0;
+    int region = 0;  /* Auto-config always uses region 0 */
+
+    (void)r0;  /* May not be used in all code paths */
 
     /* Calculate base address: place NC region at top of extended memory */
     /* Align to granularity */
@@ -5946,9 +5977,11 @@ static void draw_test_screen(void)
 static void draw_reg_screen(void)
 {
     chipset_info_t *chip = &g_state.chipset;
-    int row, col;
-    unsigned char val;
-    int cursor_idx = g_state.reg_cursor;
+    int row, col, idx, i;
+    unsigned char val, attr;
+    int cursor_idx;
+
+    cursor_idx = g_state.reg_cursor;
 
     /* Title */
     video_printf(2, 3, ATTR_HIGHLIGHT, "REGISTER DUMP (Port %02Xh/%02Xh)",
@@ -5963,11 +5996,11 @@ static void draw_reg_screen(void)
         video_printf(2, 6 + row, ATTR_LABEL, "%02X:", row * 16);
 
         for (col = 0; col < 16; col++) {
-            int idx = row * 16 + col;
+            idx = row * 16 + col;
             val = chipset_read_reg(idx);
             g_state.reg_values[idx] = val;
 
-            unsigned char attr = (idx == cursor_idx) ? ATTR_SELECTED : ATTR_VALUE;
+            attr = (idx == cursor_idx) ? ATTR_SELECTED : ATTR_VALUE;
             video_printf(6 + col * 3, 6 + row, attr, "%02X", val);
         }
     }
@@ -5991,7 +6024,7 @@ static void draw_reg_screen(void)
     video_puts(55, 9, "BIT DECODE", ATTR_HIGHLIGHT);
     video_hline(55, 10, 10, 0xC4, ATTR_DIM);
 
-    for (int i = 7; i >= 0; i--) {
+    for (i = 7; i >= 0; i--) {
         video_printf(55, 11 + (7 - i), ATTR_VALUE, "%d: %c",
                      i, (val & (1 << i)) ? '1' : '0');
     }
@@ -6222,12 +6255,12 @@ static void profile_capture_current(profile_t *p, const char *name)
 
     /* Shadow RAM (read from inventory if available) */
     if (g_state.inv286.valid) {
-        p->shadow_c0000 = g_state.inv286.shadow_c0;
-        p->shadow_c8000 = g_state.inv286.shadow_c8;
-        p->shadow_d0000 = g_state.inv286.shadow_d0;
-        p->shadow_d8000 = g_state.inv286.shadow_d8;
-        p->shadow_e0000 = g_state.inv286.shadow_e0;
-        p->shadow_f0000 = g_state.inv286.shadow_f0;
+        p->shadow_c0000 = g_state.inv286.shadow_c000_c7ff;
+        p->shadow_c8000 = g_state.inv286.shadow_c800_cfff;
+        p->shadow_d0000 = g_state.inv286.shadow_d000_dfff;
+        p->shadow_d8000 = 0;  /* Not separately tracked */
+        p->shadow_e0000 = g_state.inv286.shadow_e000_ffff;
+        p->shadow_f0000 = g_state.inv286.shadow_e000_ffff;
     }
 
     /* Calculate checksum */
@@ -6365,7 +6398,7 @@ static int profile_apply(int index)
     if (p->cache_enabled && !is_cache_enabled()) {
         enable_cache();
     } else if (!p->cache_enabled && is_cache_enabled()) {
-        disable_cache();
+        safe_disable_cache();
     }
 
     /* Apply NC regions (only if chipset supports it) */
@@ -6412,6 +6445,7 @@ static void draw_profiles_screen(void)
     int i, y;
     profile_t *p;
     int nc_active = 0;
+    unsigned char attr, chip_match;
 
     video_puts(2, 3, "CONFIGURATION PROFILES", ATTR_HIGHLIGHT);
     video_hline(2, 4, 22, 0xC4, ATTR_DIM);
@@ -6466,8 +6500,8 @@ static void draw_profiles_screen(void)
         for (i = 0; i < g_state.profile_count && i < 5; i++) {
             p = &g_profiles[i];
             y = 7 + i;
-            unsigned char attr = (i == g_state.profile_cursor) ? ATTR_SELECTED : ATTR_VALUE;
-            unsigned char chip_match = (p->chipset_type == g_state.chipset.type);
+            attr = (i == g_state.profile_cursor) ? ATTR_SELECTED : ATTR_VALUE;
+            chip_match = (p->chipset_type == g_state.chipset.type);
 
             video_printf(42, y, attr, "%d  %-12s  %s  %s%s",
                         i + 1, p->name, p->date,
@@ -6509,9 +6543,12 @@ static void draw_profiles_screen(void)
 static void draw_inventory_screen(void)
 {
     int i, y;
-    int start = g_state.inventory.scroll_offset;
+    int start;
     int visible = 13;  /* Lines available for device list */
     device_entry_t *d;
+    unsigned char attr;
+
+    start = g_state.inventory.scroll_offset;
 
     video_puts(2, 3, "EXPANSION CARD INVENTORY", ATTR_HIGHLIGHT);
     video_hline(2, 4, 24, 0xC4, ATTR_DIM);
@@ -6528,8 +6565,8 @@ static void draw_inventory_screen(void)
         /* Device list */
         for (i = 0; i < visible && (start + i) < g_state.inventory.device_count; i++) {
             d = &g_devices[start + i];
-            unsigned char attr = (g_state.inventory.cursor == start + i)
-                                 ? ATTR_SELECTED : ATTR_VALUE;
+            attr = (g_state.inventory.cursor == start + i)
+                   ? ATTR_SELECTED : ATTR_VALUE;
             y = 7 + i;
 
             /* Clear line first */
@@ -6643,6 +6680,10 @@ static void draw_busconfig_screen(void)
     slot_config_t *slot;
     char id_str[16];
     const char *bus_name;
+    unsigned char attr;
+    char irq_str[4];
+    char dma_str[4];
+    unsigned char arb;
 
     /* Initialize on first entry */
     if (!g_state.busconfig.initialized) {
@@ -6746,8 +6787,8 @@ static void draw_busconfig_screen(void)
         /* Slot list */
         for (i = 0; i < visible && (start + i) < bs->slot_count; i++) {
             slot = &bs->slots[start + i];
-            unsigned char attr = (g_state.busconfig.cursor == start + i)
-                                 ? ATTR_SELECTED : ATTR_VALUE;
+            attr = (g_state.busconfig.cursor == start + i)
+                   ? ATTR_SELECTED : ATTR_VALUE;
             y = 7 + i;
 
             /* Clear line */
@@ -6763,7 +6804,6 @@ static void draw_busconfig_screen(void)
             /* Display based on individual slot's bus type (handles mixed EISA+PnP) */
             if (slot->bus_type == BUS_EISA) {
                 /* EISA: Slot  ID        Enabled  IRQ  I/O     Name */
-                char irq_str[4];
                 if (slot->irq_count > 0 && slot->irqs[0].irq < 16)
                     sprintf(irq_str, "%d", slot->irqs[0].irq);
                 else
@@ -6778,8 +6818,7 @@ static void draw_busconfig_screen(void)
             } else if (slot->bus_type == BUS_MCA) {
                 /* MCA: Slot  @ID    Enabled  IRQ  ARB  I/O     Name */
                 /* ARB = Arbitration level from POS 4 bits 0-3 */
-                unsigned char arb = slot->pos[4] & 0x0F;
-                char irq_str[4];
+                arb = slot->pos[4] & 0x0F;
                 if (slot->irq_count > 0 && slot->irqs[0].irq < 16)
                     sprintf(irq_str, "%d", slot->irqs[0].irq);
                 else
@@ -6794,8 +6833,6 @@ static void draw_busconfig_screen(void)
                     slot->name);
             } else if (slot->bus_type == BUS_ISAPNP) {
                 /* ISA PnP: CSN   ID        Active   IRQ  DMA  I/O     Name */
-                char irq_str[4];
-                char dma_str[4];
                 if (slot->irq_count > 0 && slot->irqs[0].irq < 16)
                     sprintf(irq_str, "%d", slot->irqs[0].irq);
                 else
@@ -7135,7 +7172,7 @@ static void handle_busconfig_keys(int key)
             if (bs->slot_count > 0 && g_state.busconfig.cursor < bs->slot_count) {
                 int conf_count;
                 slot = &bs->slots[g_state.busconfig.cursor];
-                if (ui_confirm_dialog(slot->enabled ?
+                if (ui_confirm_box("Confirm",slot->enabled ?
                         "Disable this adapter?" : "Enable this adapter?")) {
                     buscfg_slot_enable(slot->slot, !slot->enabled);
                     slot->enabled = !slot->enabled;
@@ -7169,12 +7206,12 @@ static void handle_busconfig_keys(int key)
             if (bs->modified) {
                 /* Check for conflicts before saving */
                 if (bs->conflict_count > 0) {
-                    if (!ui_confirm_dialog("Warning: Conflicts exist! Save anyway?")) {
+                    if (!ui_confirm_box("Confirm","Warning: Conflicts exist! Save anyway?")) {
                         ui_draw_status_bar("Save cancelled - resolve conflicts first");
                         break;
                     }
                 }
-                if (ui_confirm_dialog("Save configuration to NVM?")) {
+                if (ui_confirm_box("Confirm","Save configuration to NVM?")) {
                     if (buscfg_save_nvm() == BUSCFG_OK) {
                         ui_draw_status_bar("Configuration saved to NVM");
                     } else {
@@ -7253,7 +7290,7 @@ static void handle_busconfig_keys(int key)
                 slot = &bs->slots[g_state.busconfig.cursor];
                 if (slot->bus_type == BUS_ISAPNP) {
                     if (slot->enabled) {
-                        if (ui_confirm_dialog("Deactivate this PnP device?")) {
+                        if (ui_confirm_box("Confirm","Deactivate this PnP device?")) {
                             if (isapnp_activate(slot->isapnp_csn, slot->isapnp_logdev, 0)
                                     == BUSCFG_OK) {
                                 slot->enabled = 0;
@@ -7663,16 +7700,16 @@ static int input_profile_name(char *buf, int maxlen)
     /* Draw dialog box */
     video_fill(x - 1, y - 1, 32, 5, ' ', ATTR_NORMAL);
     video_box(x - 1, y - 1, 32, 5, ATTR_BOX);
-    video_string(x + 2, y, "Save Profile", ATTR_HEADING);
-    video_string(x + 2, y + 1, "Name: [            ]", ATTR_NORMAL);
-    video_string(x + 2, y + 2, "Enter=Save  Esc=Cancel", ATTR_DIM);
+    video_puts(x + 2, y, "Save Profile", ATTR_TITLE);
+    video_puts(x + 2, y + 1, "Name: [            ]", ATTR_NORMAL);
+    video_puts(x + 2, y + 2, "Enter=Save  Esc=Cancel", ATTR_DIM);
 
     buf[0] = '\0';
 
     while (1) {
         /* Show cursor position */
         video_fill(x + 9, y + 1, PROFILE_NAME_LEN, 1, ' ', ATTR_HIGHLIGHT);
-        video_string(x + 9, y + 1, buf, ATTR_HIGHLIGHT);
+        video_puts(x + 9, y + 1, buf, ATTR_HIGHLIGHT);
 
         key = get_key();
 
@@ -7726,8 +7763,7 @@ static void handle_profiles_keys(int key)
             }
             if (input_profile_name(name_buf, PROFILE_NAME_LEN)) {
                 profile_t new_prof;
-                profile_capture_current(&new_prof);
-                strcpy(new_prof.name, name_buf);
+                profile_capture_current(&new_prof, name_buf);
                 if (profile_save(&new_prof)) {
                     ui_draw_status_bar("Profile saved successfully");
                     profile_scan_dir();  /* Refresh list */

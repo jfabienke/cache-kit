@@ -1,8 +1,8 @@
 /*============================================================================
  * CK_UI.H - CACHEKIT User Interface Components
  *
- * Part of CACHEKIT v3.0
- * Last Updated: 2026-01-06 12:30:00 EST
+ * Part of CACHEKIT v3.1
+ * Last Updated: 2026-01-23 18:00:00 CET
  *
  * Common UI components: dialogs, menus, status bars, etc.
  * Uses CK_VIDEO for low-level drawing.
@@ -25,6 +25,7 @@ typedef enum {
     SCREEN_BENCHMARK,       /* F5 - Memory Benchmarks */
     SCREEN_PROFILES,        /* F6 - Configuration Profiles */
     SCREEN_INVENTORY,       /* F7 - Expansion Card Inventory */
+    SCREEN_BUSCONFIG,       /* F8 - EISA/MCA/ISA PnP Bus Configuration */
     SCREEN_COUNT
 } screen_t;
 

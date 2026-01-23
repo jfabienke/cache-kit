@@ -150,6 +150,11 @@ int hal_stub_nc_read(int idx, nc_region_t *r);
 
 /* PCI bus detection */
 int pci_bus_present(void);
+int pci_present(void);              /* Alias for pci_bus_present */
+
+/* Bus type detection */
+int check_eisa(void);               /* Check for EISA bus */
+int check_mca(void);                /* Check for MCA (Micro Channel) bus */
 
 /* PCI config space read */
 unsigned char pci_read_config_byte(unsigned char bus, unsigned char dev,
@@ -158,6 +163,10 @@ unsigned int pci_read_config_word(unsigned char bus, unsigned char dev,
                                   unsigned char func, unsigned char reg);
 unsigned long pci_read_config_dword(unsigned char bus, unsigned char dev,
                                     unsigned char func, unsigned char reg);
+
+/* Legacy 4-parameter wrapper (maps to dword read) */
+unsigned long pci_read_config(unsigned char bus, unsigned char dev,
+                              unsigned char func, unsigned char reg);
 
 /* PCI config space write */
 void pci_write_config_byte(unsigned char bus, unsigned char dev,

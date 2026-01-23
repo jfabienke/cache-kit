@@ -4,7 +4,17 @@
 
 Part of the Abacus FPGA Project | For 386/486/Pentium ISA Systems
 
-*Last Updated: 2026-01-23 14:19:26 CET*
+*Last Updated: 2026-01-23 18:17:36 CET*
+
+## Download
+
+| File | Size | Description |
+|------|------|-------------|
+| [**CACHEKIT.EXE**](https://github.com/jfabienke/cache-kit/releases/latest/download/CACHEKIT.EXE) | 127 KB | Main TUI utility (requires 386+) |
+| [CHIPSET.EXE](https://github.com/jfabienke/cache-kit/releases/latest/download/CHIPSET.EXE) | ~8 KB | CLI chipset detection |
+| [NCCONFIG.EXE](https://github.com/jfabienke/cache-kit/releases/latest/download/NCCONFIG.EXE) | ~6 KB | CLI NC region config |
+
+➡️ **[All Downloads on Releases Page](https://github.com/jfabienke/cache-kit/releases)**
 
 ## Overview
 
@@ -65,10 +75,10 @@ CACHEKIT.EXE
 ## Building
 
 **Requirements:**
-- Open Watcom C/C++ compiler
+- Open Watcom C/C++ v2 compiler
 - `WATCOM` environment variable set
 
-**Build Targets:**
+### DOS Native Build
 ```bash
 wmake              # Build CACHEKIT.EXE (HAL-based v3.x)
 wmake legacy       # Build single-file v2.x version
@@ -76,6 +86,17 @@ wmake cli          # Build standalone CLI tools
 wmake clean        # Remove build artifacts
 wmake rebuild      # Clean and rebuild
 ```
+
+### macOS Cross-Compilation
+Build from macOS (including Apple Silicon) using Open Watcom v2:
+```bash
+./build_macos.sh hal      # Build CACHEKIT.EXE
+./build_macos.sh cli      # Build CLI tools
+./build_macos.sh clean    # Clean build artifacts
+./build_macos.sh          # Build all
+```
+
+See [WATCOM_COMPILER_NOTES.md](WATCOM_COMPILER_NOTES.md) for detailed cross-compilation setup and C89 compliance notes.
 
 ## Supported Chipsets
 

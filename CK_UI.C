@@ -197,12 +197,19 @@ void ui_draw_progress(int x, int y, int width, int percent)
 void ui_message_box(const char *title, const char *message)
 {
     int msg_lines;
-    int msg_width = calc_msg_width(message, &msg_lines);
-    int title_len = title ? strlen(title) : 0;
-    int dlg_width = (msg_width > title_len ? msg_width : title_len) + 6;
-    int dlg_height = msg_lines + 6;
-    int x = (SCREEN_WIDTH - dlg_width) / 2;
-    int y = (SCREEN_HEIGHT - dlg_height) / 2;
+    int msg_width;
+    int title_len;
+    int dlg_width;
+    int dlg_height;
+    int x, y;
+    int key;
+
+    msg_width = calc_msg_width(message, &msg_lines);
+    title_len = title ? strlen(title) : 0;
+    dlg_width = (msg_width > title_len ? msg_width : title_len) + 6;
+    dlg_height = msg_lines + 6;
+    x = (SCREEN_WIDTH - dlg_width) / 2;
+    y = (SCREEN_HEIGHT - dlg_height) / 2;
 
     if (dlg_width > 76) dlg_width = 76;
     if (dlg_height > 20) dlg_height = 20;
@@ -224,7 +231,7 @@ void ui_message_box(const char *title, const char *message)
 
     /* Wait for key */
     while (1) {
-        int key = video_getkey();
+        key = video_getkey();
         if (key == KEY_ENTER || key == KEY_ESC || key == KEY_SPACE) {
             break;
         }
@@ -234,13 +241,21 @@ void ui_message_box(const char *title, const char *message)
 int ui_confirm_box(const char *title, const char *message)
 {
     int msg_lines;
-    int msg_width = calc_msg_width(message, &msg_lines);
-    int title_len = title ? strlen(title) : 0;
-    int dlg_width = (msg_width > title_len ? msg_width : title_len) + 6;
-    int dlg_height = msg_lines + 6;
-    int x = (SCREEN_WIDTH - dlg_width) / 2;
-    int y = (SCREEN_HEIGHT - dlg_height) / 2;
+    int msg_width;
+    int title_len;
+    int dlg_width;
+    int dlg_height;
+    int x, y;
     int selected = 0;  /* 0 = Yes, 1 = No */
+    int btn_y, yes_x, no_x;
+    int key;
+
+    msg_width = calc_msg_width(message, &msg_lines);
+    title_len = title ? strlen(title) : 0;
+    dlg_width = (msg_width > title_len ? msg_width : title_len) + 6;
+    dlg_height = msg_lines + 6;
+    x = (SCREEN_WIDTH - dlg_width) / 2;
+    y = (SCREEN_HEIGHT - dlg_height) / 2;
 
     if (dlg_width < 24) dlg_width = 24;
     if (dlg_width > 76) dlg_width = 76;
@@ -259,15 +274,14 @@ int ui_confirm_box(const char *title, const char *message)
     draw_msg_lines(x + 3, y + 2, message, ATTR_NORMAL);
 
     /* Buttons */
+    btn_y = y + dlg_height - 2;
+    yes_x = x + dlg_width / 2 - 10;
+    no_x = x + dlg_width / 2 + 3;
     while (1) {
-        int btn_y = y + dlg_height - 2;
-        int yes_x = x + dlg_width / 2 - 10;
-        int no_x = x + dlg_width / 2 + 3;
-
         video_puts(yes_x, btn_y, "[ Yes ]", selected == 0 ? ATTR_SELECTED : ATTR_NORMAL);
         video_puts(no_x, btn_y, "[ No ]", selected == 1 ? ATTR_SELECTED : ATTR_NORMAL);
 
-        int key = video_getkey();
+        key = video_getkey();
         switch (key) {
             case KEY_LEFT:
             case KEY_TAB:
@@ -293,12 +307,19 @@ int ui_confirm_box(const char *title, const char *message)
 void ui_error_box(const char *title, const char *message)
 {
     int msg_lines;
-    int msg_width = calc_msg_width(message, &msg_lines);
-    int title_len = title ? strlen(title) : 5;  /* "Error" */
-    int dlg_width = (msg_width > title_len ? msg_width : title_len) + 6;
-    int dlg_height = msg_lines + 6;
-    int x = (SCREEN_WIDTH - dlg_width) / 2;
-    int y = (SCREEN_HEIGHT - dlg_height) / 2;
+    int msg_width;
+    int title_len;
+    int dlg_width;
+    int dlg_height;
+    int x, y;
+    int key;
+
+    msg_width = calc_msg_width(message, &msg_lines);
+    title_len = title ? strlen(title) : 5;  /* "Error" */
+    dlg_width = (msg_width > title_len ? msg_width : title_len) + 6;
+    dlg_height = msg_lines + 6;
+    x = (SCREEN_WIDTH - dlg_width) / 2;
+    y = (SCREEN_HEIGHT - dlg_height) / 2;
 
     if (dlg_width > 76) dlg_width = 76;
     if (dlg_height > 20) dlg_height = 20;
@@ -319,7 +340,7 @@ void ui_error_box(const char *title, const char *message)
 
     /* Wait for key */
     while (1) {
-        int key = video_getkey();
+        key = video_getkey();
         if (key == KEY_ENTER || key == KEY_ESC || key == KEY_SPACE) {
             break;
         }
@@ -328,13 +349,19 @@ void ui_error_box(const char *title, const char *message)
 
 int ui_input_box(const char *title, const char *prompt, char *buffer, int maxlen)
 {
-    int prompt_len = strlen(prompt);
-    int title_len = title ? strlen(title) : 0;
-    int dlg_width = prompt_len + maxlen + 8;
+    int prompt_len;
+    int title_len;
+    int dlg_width;
     int dlg_height = 7;
     int x, y, input_x, input_y;
-    int pos = strlen(buffer);
+    int pos;
     int result = DLG_CANCEL;
+    int key;
+
+    prompt_len = strlen(prompt);
+    title_len = title ? strlen(title) : 0;
+    dlg_width = prompt_len + maxlen + 8;
+    pos = strlen(buffer);
 
     if (dlg_width < title_len + 4) dlg_width = title_len + 4;
     if (dlg_width > 76) dlg_width = 76;
@@ -370,7 +397,7 @@ int ui_input_box(const char *title, const char *prompt, char *buffer, int maxlen
         video_putsn(input_x, input_y, buffer, maxlen, ATTR_SELECTED);
         video_cursor_move(input_x + pos, input_y);
 
-        int key = video_getkey();
+        key = video_getkey();
 
         if (key == KEY_ENTER) {
             result = DLG_OK;
@@ -465,10 +492,17 @@ void ui_menu_add(menu_t *menu, const char *label, int value, int enabled)
 int ui_menu_show(menu_t *menu)
 {
     int i;
-    int h = menu->count + 2;
-    int x = menu->x;
-    int y = menu->y;
-    int w = menu->w;
+    int h;
+    int x;
+    int y;
+    int w;
+    int key;
+    unsigned char attr;
+
+    h = menu->count + 2;
+    x = menu->x;
+    y = menu->y;
+    w = menu->w;
 
     if (menu->title) h++;
 
@@ -486,7 +520,6 @@ int ui_menu_show(menu_t *menu)
     while (1) {
         /* Draw items */
         for (i = 0; i < menu->count; i++) {
-            unsigned char attr;
             if (!menu->items[i].enabled) {
                 attr = ATTR_DIM;
             } else if (i == menu->selected) {
@@ -498,7 +531,7 @@ int ui_menu_show(menu_t *menu)
             video_puts(x + 2, y + 1 + i, menu->items[i].label, attr);
         }
 
-        int key = video_getkey();
+        key = video_getkey();
         switch (key) {
             case KEY_UP:
                 do {

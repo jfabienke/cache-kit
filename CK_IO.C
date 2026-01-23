@@ -11,6 +11,8 @@
  *============================================================================*/
 
 #include <conio.h>
+#include <dos.h>
+#include <i86.h>
 #include "CK_HAL.H"
 
 /*============================================================================
@@ -39,14 +41,36 @@ void io_write_word(unsigned int port, unsigned int val)
     outpw(port, val);
 }
 
+/*
+ * 32-bit port I/O using inline assembly (386+ required)
+ * The 16-bit conio.h doesn't provide inpd/outpd, so we implement them.
+ */
 unsigned long io_read_dword(unsigned int port)
 {
-    return inpd(port);
+    unsigned long val;
+    _asm {
+        .386
+        mov dx, port
+        in eax, dx
+        mov word ptr val, ax
+        shr eax, 16
+        mov word ptr val+2, ax
+    }
+    return val;
 }
 
 void io_write_dword(unsigned int port, unsigned long val)
 {
-    outpd(port, val);
+    _asm {
+        .386
+        mov ax, word ptr val
+        mov dx, ax
+        mov ax, word ptr val+2
+        shl eax, 16
+        mov ax, dx
+        mov dx, port
+        out dx, eax
+    }
 }
 
 /*============================================================================
@@ -158,6 +182,65 @@ int pci_bus_present(void)
     }
 
     return 1;
+}
+
+/*
+ * Alias for pci_bus_present (for compatibility with code using pci_present)
+ */
+int pci_present(void)
+{
+    return pci_bus_present();
+}
+
+/*============================================================================
+ * BUS TYPE DETECTION
+ *
+ * Detect EISA and MCA buses for expansion card enumeration.
+ *============================================================================*/
+
+/*
+ * Check for EISA bus by looking for "EISA" signature in ROM
+ */
+int check_eisa(void)
+{
+    char far *sig = (char far *)0xF000FFD9L;
+    return (sig[0] == 'E' && sig[1] == 'I' && sig[2] == 'S' && sig[3] == 'A');
+}
+
+/*
+ * Check for MCA bus via INT 15h AH=C0h BIOS configuration table
+ */
+int check_mca(void)
+{
+    union REGS regs;
+    struct SREGS sregs;
+    unsigned char far *config_table;
+    unsigned char feature_byte1;
+
+    regs.h.ah = 0xC0;
+    int86x(0x15, &regs, &regs, &sregs);
+
+    /* Check carry flag - function not supported if set */
+    if (regs.x.cflag)
+        return 0;
+
+    /* Get pointer to configuration table in ROM */
+    config_table = (unsigned char far *)MK_FP(sregs.es, regs.x.bx);
+
+    /* Feature byte 1 is at offset 05h */
+    feature_byte1 = config_table[5];
+
+    /* Bit 1 = MCA (Micro Channel Architecture) bus present */
+    return (feature_byte1 & 0x02) ? 1 : 0;
+}
+
+/*
+ * Wrapper for 4-parameter pci_read_config (maps to dword read)
+ */
+unsigned long pci_read_config(unsigned char bus, unsigned char dev,
+                              unsigned char func, unsigned char reg)
+{
+    return pci_read_config_dword(bus, dev, func, reg);
 }
 
 /*============================================================================
