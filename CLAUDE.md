@@ -40,7 +40,7 @@ CACHEKIT.C (Main TUI: screens F1-F7, state machine, main loop)
                 ├── CK_OPTI.C   (391, 381, Viper, EISA variants)
                 ├── CK_VIA.C    (VT82C495, VP1, VP3, MVP3)
                 ├── CK_ALI.C    (Aladdin IV/V)
-                ├── CK_LEGACY.C (NEAT, Headland, VLSI, 286/386-era)
+                ├── CK_LEGAC.C (NEAT, Headland, VLSI, 286/386-era)
                 └── CK_OTHER.C  (UMC, Eteq, Faraday, MIC, Contaq)
 
 CK_ENUM.C/H  (PCI/MCA/EISA/ISA PnP enumeration with embedded ID databases)

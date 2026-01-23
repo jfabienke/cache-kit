@@ -1,5 +1,5 @@
 /*============================================================================
- * CK_BUSCFG.C - CACHEKIT Bus Configuration Implementation
+ * CK_BCFG.C - CACHEKIT Bus Configuration Implementation
  *
  * Part of CACHEKIT v3.1
  * Last Updated: 2026-01-13
@@ -11,7 +11,7 @@
 #include <string.h>
 #include <conio.h>
 #include <dos.h>
-#include "CK_BUSCFG.H"
+#include "CK_BCFG.H"
 #include "CK_ENUM.H"
 
 /*============================================================================
@@ -79,7 +79,7 @@
  * MODULE STATE
  *============================================================================*/
 
-/* Note: EISA_VENDOR_* constants are defined in CK_BUSCFG.H */
+/* Note: EISA_VENDOR_* constants are defined in CK_BCFG.H */
 
 static buscfg_state_t g_buscfg_state;
 static unsigned char g_eisa_bios_vendor = EISA_VENDOR_UNKNOWN;

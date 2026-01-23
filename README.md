@@ -114,7 +114,7 @@ CACHEKIT.C (Main TUI)
     ├── CK_HAL.C/H     (detection registry)
     ├── CK_IO.C        (PCI/legacy port I/O)
     ├── CK_ENUM.C/H    (bus enumeration)
-    └── CK_BUSCFG.C/H  (EISA/MCA/ISA PnP config)
+    └── CK_BCFG.C/H  (EISA/MCA/ISA PnP config)
             │
             └── Chipset Implementations:
                 ├── CK_INTEL.C   (430FX/HX/VX/TX/MX, EISA)
@@ -122,7 +122,7 @@ CACHEKIT.C (Main TUI)
                 ├── CK_OPTI.C    (391, 381, Viper)
                 ├── CK_VIA.C     (VP1, VP3, MVP3)
                 ├── CK_ALI.C     (Aladdin IV/V)
-                ├── CK_LEGACY.C  (NEAT, Headland, VLSI)
+                ├── CK_LEGAC.C  (NEAT, Headland, VLSI)
                 └── CK_OTHER.C   (UMC, Eteq, Faraday)
 ```
 

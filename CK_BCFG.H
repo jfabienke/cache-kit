@@ -1,5 +1,5 @@
 /*============================================================================
- * CK_BUSCFG.H - CACHEKIT Bus Configuration Interface
+ * CK_BCFG.H - CACHEKIT Bus Configuration Interface
  *
  * Part of CACHEKIT v3.1
  * Last Updated: 2026-01-13
@@ -9,8 +9,8 @@
  *   - MCA: ADF file parsing, POS register read/write, NVRAM save
  *============================================================================*/
 
-#ifndef CK_BUSCFG_H
-#define CK_BUSCFG_H
+#ifndef CK_BCFG_H
+#define CK_BCFG_H
 
 /*============================================================================
  * CONSTANTS
@@ -498,4 +498,4 @@ unsigned char buscfg_get_available_dmas(unsigned char exclude_slot);
  * Returns BUSCFG_OK on success */
 int buscfg_export_report(const char *filename);
 
-#endif /* CK_BUSCFG_H */
+#endif /* CK_BCFG_H */

@@ -1,5 +1,5 @@
 /*============================================================================
- * CK_LEGACY.C - 286-Era Legacy Chipset HAL Implementations
+ * CK_LEGAC.C - 286-Era Legacy Chipset HAL Implementations
  *
  * Part of CACHEKIT v3.0
  * Last Updated: 2026-01-06 11:00:00 EST
@@ -1208,5 +1208,5 @@ const chipset_ops_t ops_headland_ht102 = {
 };
 
 /*============================================================================
- * END OF CK_LEGACY.C
+ * END OF CK_LEGAC.C
  *============================================================================*/

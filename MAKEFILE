@@ -44,13 +44,13 @@ HAL_OBJS = &
     CK_HAL.OBJ &
     CK_IO.OBJ &
     CK_ENUM.OBJ &
-    CK_BUSCFG.OBJ &
+    CK_BCFG.OBJ &
     CK_INTEL.OBJ &
     CK_SIS.OBJ &
     CK_OPTI.OBJ &
     CK_VIA.OBJ &
     CK_ALI.OBJ &
-    CK_LEGACY.OBJ &
+    CK_LEGAC.OBJ &
     CK_OTHER.OBJ &
     CK_VIDEO.OBJ &
     CK_UI.OBJ
@@ -71,13 +71,13 @@ CACHEKIT.EXE: $(HAL_OBJS)
 WCL = wcl
 WCLFLAGS = -0 -ms -os -wx -zq -fe=$^@
 
-legacy: CACHEKIT_LEGACY.EXE
+legacy: CACHKITL.EXE
     @echo.
-    @echo Build complete: CACHEKIT_LEGACY.EXE (v2.x single-file)
+    @echo Build complete: CACHKITL.EXE (v2.x single-file)
 
-CACHEKIT_LEGACY.EXE: CACHEKIT.C
+CACHKITL.EXE: CACHEKIT.C
     $(WCL) $(WCLFLAGS) CACHEKIT.C
-    rename CACHEKIT.EXE CACHEKIT_LEGACY.EXE
+    rename CACHEKIT.EXE CACHKITL.EXE
 
 #============================================================================
 # CLI UTILITIES (standalone, from v1.x)
@@ -113,7 +113,7 @@ CACHETST.EXE: CACHETST.C
 CK_HAL.OBJ: CK_HAL.C CK_HAL.H
 CK_IO.OBJ: CK_IO.C CK_HAL.H
 CK_ENUM.OBJ: CK_ENUM.C CK_ENUM.H CK_HAL.H
-CK_BUSCFG.OBJ: CK_BUSCFG.C CK_BUSCFG.H CK_ENUM.H
+CK_BCFG.OBJ: CK_BCFG.C CK_BCFG.H CK_ENUM.H
 
 # Chipset implementations
 CK_INTEL.OBJ: CK_INTEL.C CK_HAL.H
@@ -121,7 +121,7 @@ CK_SIS.OBJ: CK_SIS.C CK_HAL.H
 CK_OPTI.OBJ: CK_OPTI.C CK_HAL.H
 CK_VIA.OBJ: CK_VIA.C CK_HAL.H
 CK_ALI.OBJ: CK_ALI.C CK_HAL.H
-CK_LEGACY.OBJ: CK_LEGACY.C CK_HAL.H
+CK_LEGAC.OBJ: CK_LEGAC.C CK_HAL.H
 CK_OTHER.OBJ: CK_OTHER.C CK_HAL.H
 
 # UI components
@@ -129,7 +129,7 @@ CK_VIDEO.OBJ: CK_VIDEO.C CK_VIDEO.H
 CK_UI.OBJ: CK_UI.C CK_UI.H CK_VIDEO.H
 
 # Main application
-CACHEKIT.OBJ: CACHEKIT.C CK_HAL.H CK_VIDEO.H CK_UI.H CK_ENUM.H CK_BUSCFG.H
+CACHEKIT.OBJ: CACHEKIT.C CK_HAL.H CK_VIDEO.H CK_UI.H CK_ENUM.H CK_BCFG.H
 
 #============================================================================
 # UTILITY TARGETS

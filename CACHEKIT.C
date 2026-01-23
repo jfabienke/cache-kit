@@ -28,7 +28,7 @@
 #include "CK_VIDEO.H"
 #include "CK_UI.H"
 #include "CK_ENUM.H"
-#include "CK_BUSCFG.H"
+#include "CK_BCFG.H"
 
 /*============================================================================
  * CONSTANTS

@@ -358,7 +358,7 @@ NEW IN v3.1 (EISA/MCA BUS CONFIGURATION):
       - Individual card actions based on bus type (A=Activate for PnP, A=AutoCfg for EISA)
     * MCA excluded: PS/2 systems use separate slot architecture (no ISA bus)
   - New source files:
-    * CK_BUSCFG.C/H - Bus configuration API and implementation
+    * CK_BCFG.C/H - Bus configuration API and implementation
   - Test on 86Box: EISA 486 systems, IBM PS/2 Model 80, ISA systems with PnP cards
 
 NEW IN v3.0 (HAL ARCHITECTURE REFACTOR):
@@ -372,7 +372,7 @@ NEW IN v3.0 (HAL ARCHITECTURE REFACTOR):
     * CK_OPTI.C    - OPTi chipsets (391, 381, Viper, 212, EISA variants)
     * CK_VIA.C     - VIA chipsets (VT82C495, VP1, VP3, MVP3)
     * CK_ALI.C     - ALi chipsets (Aladdin IV, Aladdin V)
-    * CK_LEGACY.C  - 286/386-era (NEAT, PEAK, SCAT, Headland, VLSI)
+    * CK_LEGAC.C  - 286/386-era (NEAT, PEAK, SCAT, Headland, VLSI)
     * CK_OTHER.C   - UMC, Eteq, Faraday, MIC, Contaq, Forex, Suntac, MCA
     * CK_VIDEO.C/H - Video primitives (text mode, boxes, keyboard)
     * CK_UI.C/H    - UI components (dialogs, menus, status bars)
@@ -415,7 +415,7 @@ Architecture:
             |         |         |         |         |           |
             v         v         v         v         v           v
        +---------+---------+---------+---------+---------+---------+
-       |CK_INTEL |CK_SIS   |CK_OPTI  |CK_VIA   |CK_ALI   |CK_LEGACY|
+       |CK_INTEL |CK_SIS   |CK_OPTI  |CK_VIA   |CK_ALI   |CK_LEGAC|
        | 430FX   | 460     | 391     | VP3     | Aladdin | NEAT    |
        | 430HX   | Rabbit  | 381     | MVP3    | M1541   | Headland|
        | 430VX   | 496     | Viper   | VT82C495|         | VLSI    |
@@ -441,13 +441,13 @@ HAL Core:
   CK_HAL.H          218    114   HAL interface: chipset_ops_t, result codes
   CK_HAL.C          374    210   Detection registry, unknown fallback, helpers
   CK_IO.C           281    157   PCI config space, legacy port I/O
-  CK_BUSCFG.C       550+   400+  EISA/MCA bus configuration
-  CK_BUSCFG.H       220+   120+  Bus configuration API
+  CK_BCFG.C       550+   400+  EISA/MCA bus configuration
+  CK_BCFG.H       220+   120+  Bus configuration API
 
 Chipset Implementations:
   File            Lines   Code   Chipsets Supported
   --------------- -----  -----   ----------------------------------------
-  CK_LEGACY.C     1,212    689   C&T NEAT, Headland, VLSI, ALi M1217, OPTi 212
+  CK_LEGAC.C     1,212    689   C&T NEAT, Headland, VLSI, ALi M1217, OPTi 212
   CK_OTHER.C      1,123    698   UMC, Eteq, Faraday, MIC, Forex, Suntac, Contaq
   CK_SIS.C          902    552   SiS 460, Rabbit, 496, 5591, 5598, 530, EISA
   CK_OPTI.C         897    493   OPTi 391, 381, Viper, 212, EISA variants

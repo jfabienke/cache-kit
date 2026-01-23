@@ -291,7 +291,7 @@ static const chipset_ops_t * const g_chipset_registry[] = {
     &ops_opti_381,
     &ops_opti_212,
 
-    /* VIA legacy chipsets (CK_VIA.C, CK_LEGACY.C) */
+    /* VIA legacy chipsets (CK_VIA.C, CK_LEGAC.C) */
     &ops_via_vt82c495,
     &ops_via_vt82c310,
 
@@ -304,7 +304,7 @@ static const chipset_ops_t * const g_chipset_registry[] = {
     &ops_forex,
     &ops_suntac,
 
-    /* 286/386-era legacy chipsets (CK_LEGACY.C) - probe last */
+    /* 286/386-era legacy chipsets (CK_LEGAC.C) - probe last */
     &ops_ct_peak,       /* C&T PEAK - check specific ID first */
     &ops_ct_scat,       /* C&T SCAT - check specific ID first */
     &ops_ct_neat386,    /* Check 386 variant before 286 */

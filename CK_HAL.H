@@ -250,7 +250,7 @@ extern const chipset_ops_t ops_via_mvp3;
 extern const chipset_ops_t ops_ali_aladdin4;
 extern const chipset_ops_t ops_ali_aladdin5;
 
-/* Legacy chipsets (CK_LEGACY.C) */
+/* Legacy chipsets (CK_LEGAC.C) */
 extern const chipset_ops_t ops_ct_neat;
 extern const chipset_ops_t ops_ct_neat386;
 extern const chipset_ops_t ops_ct_peak;
