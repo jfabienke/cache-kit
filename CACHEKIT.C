@@ -29,6 +29,7 @@
 #include "CK_UI.H"
 #include "CK_ENUM.H"
 #include "CK_BCFG.H"
+#include "CK_XMS.H"
 
 /*============================================================================
  * CONSTANTS
@@ -3852,6 +3853,71 @@ static void read_nc_regions(void)
 }
 
 /*============================================================================
+ * EXTENDED-MEMORY BENCHMARK BUFFER (XMS + unreal mode)
+ *
+ * The benchmark/flush/test routines need real memory ABOVE the program to
+ * exercise the cache without corrupting DOS or the program itself. (The old
+ * code pointed far literals like 0x10000000L at what is actually ~64KB of
+ * CONVENTIONAL RAM and wrote to it.) We allocate an XMS Extended Memory
+ * Block, lock it for its linear address, enable A20, and enter unreal mode so
+ * the CPU can touch it directly via 32-bit flat addressing. Requires 386+ and
+ * an XMS driver (HIMEM.SYS).
+ *
+ * Layout within the block: read/flush/fill region at +0; copy destination at
+ * +BENCH_DST_OFF (1MB).
+ *
+ * !!! The unreal-mode path is compile-checked only; validate on 86Box/PCem.
+ *============================================================================*/
+
+#define BENCH_BUF_KB    2048UL          /* 2MB EMB */
+#define BENCH_DST_OFF   0x100000UL      /* copy destination at +1MB */
+
+static int           g_bench_ready = 0; /* 1 = XMS buffer + unreal mode ready */
+static int           g_bench_tried = 0; /* 1 = init has been attempted */
+static unsigned int  g_bench_handle = 0;
+static unsigned long g_bench_lin = 0;   /* linear base of the locked EMB */
+
+/*
+ * Lazily set up the extended-memory benchmark buffer. Returns 1 if a real
+ * >1MB buffer is available (XMS present, 386+, alloc/lock/A20/unreal all OK);
+ * 0 otherwise, in which case callers skip the operation rather than poke
+ * conventional RAM. Safe to call repeatedly (initializes once).
+ */
+static int bench_mem_ensure(void)
+{
+    if (g_bench_tried)
+        return g_bench_ready;
+    g_bench_tried = 1;
+
+    if (g_cpu_tier < CK_CPU_386)        /* unreal mode needs a 386+ */
+        return 0;
+    if (!xms_init())
+        return 0;
+
+    g_bench_handle = xms_alloc_kb((unsigned int)BENCH_BUF_KB);
+    if (g_bench_handle == 0)
+        return 0;
+
+    g_bench_lin = xms_lock(g_bench_handle);
+    if (g_bench_lin == 0) {
+        xms_free(g_bench_handle);
+        g_bench_handle = 0;
+        return 0;
+    }
+
+    xms_local_enable_a20();
+    if (!unreal_enter()) {
+        xms_unlock(g_bench_handle);
+        xms_free(g_bench_handle);
+        g_bench_handle = 0;
+        return 0;
+    }
+
+    g_bench_ready = 1;
+    return 1;
+}
+
+/*============================================================================
  * CACHE TIMING MEASUREMENT (8254 PIT)
  *============================================================================*/
 
@@ -3868,11 +3934,14 @@ static unsigned long measure_cache_flush_time(void)
     unsigned long start_count, end_count, elapsed;
     unsigned int cache_size = g_state.chipset.cache_size_kb;
     unsigned int flush_size;
-    volatile unsigned char far *flush_area;
-    unsigned long i;
+    int have_buf;
 
     /* For 386, need to read 2x cache size to ensure full flush */
     flush_size = g_state.is_486 ? 0 : (cache_size * 2);
+
+    /* The 386 read-loop flush needs the extended-memory buffer; set it up
+       BEFORE the timed/interrupts-off region (it calls XMS/INT 2Fh). */
+    have_buf = g_state.is_486 ? 0 : bench_mem_ensure();
 
     /* Latch counter 0 - read current count */
     _disable();
@@ -3888,13 +3957,11 @@ static unsigned long measure_cache_flush_time(void)
         _asm {
             db 0Fh, 09h     /* WBINVD */
         }
-    } else {
-        /* Read loop through 2x cache size using extended memory area */
-        /* Use memory at 1MB (0x100000) assuming extended memory exists */
-        flush_area = (volatile unsigned char far *)0x10000000L;  /* 1MB in seg:off */
-        for (i = 0; i < (unsigned long)flush_size * 1024UL; i += 16) {
-            (void)flush_area[i];
-        }
+    } else if (have_buf) {
+        /* Read 2x cache size through the XMS extended-memory buffer (unreal
+           mode). Reaches genuine memory above 1MB instead of the old far
+           literal that aliased ~64KB of conventional RAM. */
+        unreal_read_walk(g_bench_lin, (unsigned long)flush_size * 1024UL);
     }
 
     /* Latch and read end count */
@@ -3930,13 +3997,13 @@ static unsigned long measure_cache_flush_time(void)
  */
 static unsigned long measure_working_set_time(unsigned int size_kb)
 {
-    volatile unsigned char far *buffer;
-    unsigned long i, iterations, bytes;
+    unsigned long iterations, bytes;
     unsigned int start_lo, start_hi, end_lo, end_hi;
     unsigned long start_count, end_count, elapsed;
 
-    /* Use extended memory at 16MB mark - safe area for timing tests */
-    buffer = (volatile unsigned char far *)0x10000000L;
+    /* Needs the XMS extended-memory buffer (set up before the timed region). */
+    if (!bench_mem_ensure())
+        return 0;
 
     bytes = (unsigned long)size_kb * 1024UL;
 
@@ -3953,11 +4020,10 @@ static unsigned long measure_working_set_time(unsigned int size_kb)
 
     _enable();
 
-    /* Read through the working set multiple times with 16-byte stride */
+    /* Read through the working set multiple times (16-byte stride) in the
+       XMS extended-memory buffer via unreal mode. */
     while (iterations--) {
-        for (i = 0; i < bytes; i += 16) {
-            (void)buffer[i];
-        }
+        unreal_read_walk(g_bench_lin, bytes);
     }
 
     _disable();
@@ -4051,8 +4117,6 @@ static void flush_cache(void)
 {
     unsigned int cache_size = g_state.chipset.cache_size_kb;
     unsigned int flush_size = cache_size * 2;
-    volatile unsigned char far *flush_area;
-    unsigned long i;
 
     /* Try HAL first (v3.0) */
     if (hal_is_available()) {
@@ -4069,12 +4133,9 @@ static void flush_cache(void)
         /* MIC 9391 has hardware flush trigger at Index 40h bit 1 */
         safe_write(g_state.chipset.index_port, g_state.chipset.data_port,
                    0x40, safe_read(g_state.chipset.index_port, g_state.chipset.data_port, 0x40) | 0x02);
-    } else {
-        /* Read loop for 386 */
-        flush_area = (volatile unsigned char far *)0x10000000L;
-        for (i = 0; i < (unsigned long)flush_size * 1024UL; i += 16) {
-            (void)flush_area[i];
-        }
+    } else if (bench_mem_ensure()) {
+        /* 386 read-loop flush through the XMS extended-memory buffer. */
+        unreal_read_walk(g_bench_lin, (unsigned long)flush_size * 1024UL);
     }
 }
 
@@ -4089,19 +4150,19 @@ static int test_dirty_data_writeback(void)
      * For write-through caches, this should always pass.
      * For write-back caches, this verifies flush works correctly.
      */
-    volatile unsigned long far *test_ptr;
     unsigned long pattern = 0xDEADBEEF;
     unsigned long readback;
 
-    /* Use a safe location in extended memory for testing */
-    /* At 1MB + 64KB offset to avoid conflicts */
-    test_ptr = (volatile unsigned long far *)0x10100000L;  /* 1MB + 1MB in 20-bit = 0x110000 */
+    /* Needs the XMS extended-memory buffer. If unavailable we cannot run the
+       test; report pass (don't flag a failure we couldn't actually observe). */
+    if (!bench_mem_ensure())
+        return 1;
 
-    /* Write pattern */
-    *test_ptr = pattern;
+    /* Write pattern to the extended-memory buffer (unreal mode). */
+    unreal_write32(g_bench_lin, pattern);
 
     /* Read back to ensure it's cached */
-    readback = *test_ptr;
+    readback = unreal_read32(g_bench_lin);
     if (readback != pattern) {
         return 0;  /* Initial write failed */
     }
@@ -4110,7 +4171,7 @@ static int test_dirty_data_writeback(void)
     flush_cache();
 
     /* Read back again - should still be there from RAM */
-    readback = *test_ptr;
+    readback = unreal_read32(g_bench_lin);
 
     return (readback == pattern) ? 1 : 0;
 }
@@ -4146,7 +4207,7 @@ static stress_result_t g_stress_result;
 
 static void run_stress_test(int iterations)
 {
-    volatile unsigned long far *test_ptr;
+    unsigned long lin;
     unsigned long pattern, readback;
     unsigned long timing;
     int i, p;
@@ -4160,19 +4221,26 @@ static void run_stress_test(int iterations)
     g_stress_result.failed_pattern = 0;
     g_stress_result.running = 1;
 
+    /* Needs the XMS extended-memory buffer; without it there is nowhere safe
+       to write test patterns, so skip rather than poke conventional RAM. */
+    if (!bench_mem_ensure()) {
+        g_stress_result.running = 0;
+        return;
+    }
+
     /* Use multiple test locations to stress different cache lines */
     for (i = 0; i < iterations && g_stress_result.running; i++) {
         for (p = 0; p < (int)NUM_PATTERNS; p++) {
             pattern = stress_patterns[p];
 
-            /* Vary test location to hit different cache lines */
-            test_ptr = (volatile unsigned long far *)(0x10100000L + ((i * 64) % 0x10000));
+            /* Vary test location within the buffer to hit different lines */
+            lin = g_bench_lin + ((unsigned long)(i * 64) % 0x10000UL);
 
             /* Write pattern */
-            *test_ptr = pattern;
+            unreal_write32(lin, pattern);
 
             /* Read back to cache */
-            readback = *test_ptr;
+            readback = unreal_read32(lin);
             if (readback != pattern) {
                 g_stress_result.fail_count++;
                 g_stress_result.failed_pattern = pattern;
@@ -4191,7 +4259,7 @@ static void run_stress_test(int iterations)
             }
 
             /* Verify data survived flush */
-            readback = *test_ptr;
+            readback = unreal_read32(lin);
             if (readback == pattern) {
                 g_stress_result.pass_count++;
             } else {
@@ -4219,16 +4287,18 @@ static void run_stress_test(int iterations)
 /* Memory copy benchmark using REP MOVSD */
 static unsigned long benchmark_copy_test(void)
 {
-    volatile unsigned char far *src;
-    volatile unsigned char far *dst;
+    unsigned long src, dst;
     unsigned long start_count, end_count, elapsed;
     unsigned int start_lo, start_hi, end_lo, end_hi;
     unsigned long bytes_copied;
     unsigned int i;
 
-    /* Use extended memory at 1MB+ */
-    src = (volatile unsigned char far *)0x10100000L;  /* 1MB + offset */
-    dst = (volatile unsigned char far *)0x10200000L;  /* 1MB + 1MB offset */
+    if (!bench_mem_ensure())
+        return 0;
+
+    /* Copy within the XMS extended-memory buffer: src at +0, dst at +1MB. */
+    src = g_bench_lin;
+    dst = g_bench_lin + BENCH_DST_OFF;
 
     /* Latch PIT counter for timing */
     _disable();
@@ -4238,19 +4308,9 @@ static unsigned long benchmark_copy_test(void)
     start_hi = inp(PIT_COUNTER0);
     _enable();
 
-    /* Perform copy operations */
+    /* Perform copy operations (1KB per iteration, unreal-mode flat access) */
     for (i = 0; i < BENCH_ITERS; i++) {
-        /* Simple byte copy (inline asm for REP MOVSB) */
-        _asm {
-            push es
-            push ds
-            les di, dst
-            lds si, src
-            mov cx, 1024      ; Copy 1KB per iteration for safety
-            rep movsb
-            pop ds
-            pop es
-        }
+        unreal_copy(dst, src, 1024UL);
     }
 
     /* Latch and read end count */
@@ -4283,13 +4343,13 @@ static unsigned long benchmark_copy_test(void)
 /* Memory fill benchmark using REP STOSB */
 static unsigned long benchmark_fill_test(void)
 {
-    volatile unsigned char far *dst;
     unsigned long start_count, end_count, elapsed;
     unsigned int start_lo, start_hi, end_lo, end_hi;
     unsigned long bytes_filled;
     unsigned int i;
 
-    dst = (volatile unsigned char far *)0x10100000L;
+    if (!bench_mem_ensure())
+        return 0;
 
     _disable();
     outp(PIT_CONTROL, 0x00);
@@ -4298,15 +4358,9 @@ static unsigned long benchmark_fill_test(void)
     start_hi = inp(PIT_COUNTER0);
     _enable();
 
+    /* Fill 1KB per iteration in the XMS buffer (unreal-mode flat access). */
     for (i = 0; i < BENCH_ITERS; i++) {
-        _asm {
-            push es
-            les di, dst
-            mov al, 0xAA
-            mov cx, 1024
-            rep stosb
-            pop es
-        }
+        unreal_fill(g_bench_lin, 1024UL, 0xAAAAAAAAUL);
     }
 
     _disable();
@@ -4335,14 +4389,13 @@ static unsigned long benchmark_fill_test(void)
 /* Memory read benchmark */
 static unsigned long benchmark_read_test(void)
 {
-    volatile unsigned char far *src;
-    volatile unsigned char dummy;
     unsigned long start_count, end_count, elapsed;
     unsigned int start_lo, start_hi, end_lo, end_hi;
     unsigned long bytes_read;
-    unsigned int i, j;
+    unsigned int i;
 
-    src = (volatile unsigned char far *)0x10100000L;
+    if (!bench_mem_ensure())
+        return 0;
 
     _disable();
     outp(PIT_CONTROL, 0x00);
@@ -4351,12 +4404,10 @@ static unsigned long benchmark_read_test(void)
     start_hi = inp(PIT_COUNTER0);
     _enable();
 
+    /* Read 1KB per iteration (16-byte stride) from the XMS buffer. */
     for (i = 0; i < BENCH_ITERS; i++) {
-        for (j = 0; j < 1024; j += 16) {
-            dummy = src[j];
-        }
+        unreal_read_walk(g_bench_lin, 1024UL);
     }
-    (void)dummy;  /* Prevent optimization */
 
     _disable();
     outp(PIT_CONTROL, 0x00);
@@ -4384,6 +4435,12 @@ static unsigned long benchmark_read_test(void)
 /* Run all benchmark tests */
 static void run_benchmarks(void)
 {
+    /* Benchmarks need the XMS extended-memory buffer (386+ and HIMEM.SYS). */
+    if (!bench_mem_ensure()) {
+        ui_draw_status_bar("Benchmarks need XMS + a 386 or later (load HIMEM.SYS)");
+        return;
+    }
+
     g_state.bench.test_running = 1;
     g_state.bench.progress_pct = 0;
 
@@ -4413,6 +4470,12 @@ static void run_benchmarks(void)
 static void run_comparison_benchmark(void)
 {
     int was_enabled;
+
+    /* Benchmarks need the XMS extended-memory buffer (386+ and HIMEM.SYS). */
+    if (!bench_mem_ensure()) {
+        ui_draw_status_bar("Benchmarks need XMS + a 386 or later (load HIMEM.SYS)");
+        return;
+    }
 
     g_state.bench.test_running = 1;
     g_state.bench.progress_pct = 0;

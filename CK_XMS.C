@@ -151,3 +151,144 @@ int xms_local_disable_a20(void)
 
     return ok ? 1 : 0;
 }
+
+/*============================================================================
+ * UNREAL MODE ("flat real") - see CK_XMS.H for the contract and caveats.
+ *
+ * !!! NOT hardware-validated here; compile-checked only. Verify on 86Box.
+ *============================================================================*/
+
+static unsigned char g_unreal_ready = 0;
+
+/* GDT: [0] null, [1] flat data descriptor (base 0, limit 4GB, 4KB gran).
+ * Descriptor [1] bytes: limit15:0=FFFF, base15:0=0000, base23:16=00,
+ * access=92h (present|ring0|data|writable), flags|limit19:16=CFh, base31:24=00. */
+static unsigned short g_gdt[8] = {
+    0x0000, 0x0000, 0x0000, 0x0000,     /* null descriptor */
+    0xFFFF, 0x0000, 0x9200, 0x00CF      /* flat 4GB data, selector 0x08 */
+};
+
+/* GDTR image: word limit + dword linear base of g_gdt. */
+static unsigned char g_gdtr[6];
+
+int unreal_enter(void)
+{
+    /* Compute the linear base of g_gdt (DS<<4 + offset) into the GDTR, then
+       briefly enter protected mode to load FS with the flat descriptor. FS
+       retains the cached base/limit after returning to real mode. */
+    _asm {
+        .386p
+        xor  eax, eax
+        mov  ax, ds
+        shl  eax, 4
+        mov  bx, offset g_gdt
+        movzx ebx, bx
+        add  eax, ebx                   /* eax = linear address of g_gdt */
+        mov  dword ptr g_gdtr+2, eax
+        mov  word ptr g_gdtr, 15        /* limit = 2 descriptors * 8 - 1 */
+
+        cli
+        lgdt fword ptr g_gdtr
+        mov  eax, cr0
+        or   al, 1
+        mov  cr0, eax                   /* enter protected mode */
+        mov  bx, 8
+        mov  fs, bx                     /* FS <- flat descriptor (base0,4GB) */
+        mov  eax, cr0
+        and  al, 0FEh
+        mov  cr0, eax                   /* back to real mode; FS cache stays */
+        sti
+    }
+
+    g_unreal_ready = 1;
+    return 1;
+}
+
+int unreal_active(void)
+{
+    return g_unreal_ready;
+}
+
+/* Read-bandwidth / cache-eviction walk: touch [base, base+bytes) by 16 bytes.
+   Uses scratch regs (eax/ebx/edx) only; fs base is 0 so the offset == linear. */
+void unreal_read_walk(unsigned long base, unsigned long bytes)
+{
+    _asm {
+        .386p
+        mov  ebx, base
+        mov  edx, base
+        add  edx, bytes                 /* edx = end (exclusive) */
+    rw_loop:
+        cmp  ebx, edx
+        jae  rw_done
+        mov  al, fs:[ebx]
+        add  ebx, 16
+        jmp  rw_loop
+    rw_done:
+    }
+}
+
+void unreal_fill(unsigned long base, unsigned long bytes, unsigned long pattern)
+{
+    _asm {
+        .386p
+        mov  ebx, base
+        mov  edx, base
+        add  edx, bytes
+        mov  eax, pattern
+    f_loop:
+        cmp  ebx, edx
+        jae  f_done
+        mov  fs:[ebx], eax
+        add  ebx, 4
+        jmp  f_loop
+    f_done:
+    }
+}
+
+void unreal_copy(unsigned long dst, unsigned long src, unsigned long bytes)
+{
+    _asm {
+        .386p
+        mov  ebx, src
+        mov  ecx, dst
+        mov  edx, src
+        add  edx, bytes                 /* edx = end of src */
+    c_loop:
+        cmp  ebx, edx
+        jae  c_done
+        mov  al, fs:[ebx]
+        mov  fs:[ecx], al
+        add  ebx, 1
+        add  ecx, 1
+        jmp  c_loop
+    c_done:
+    }
+}
+
+void unreal_write32(unsigned long lin, unsigned long val)
+{
+    _asm {
+        .386p
+        mov  ebx, lin
+        mov  eax, val
+        mov  fs:[ebx], eax
+    }
+}
+
+unsigned long unreal_read32(unsigned long lin)
+{
+    unsigned int lo = 0;
+    unsigned int hi = 0;
+
+    _asm {
+        .386p
+        mov  ebx, lin
+        mov  eax, fs:[ebx]
+        mov  lo, ax
+        shr  eax, 16
+        mov  hi, ax
+    }
+
+    return ((unsigned long)hi << 16) | (unsigned long)lo;
+}
