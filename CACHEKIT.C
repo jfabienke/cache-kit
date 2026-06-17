@@ -7695,8 +7695,12 @@ static void edit_register_dialog(void)
                         break;  /* User cancelled */
                     }
                 }
-                /* Write the new value */
-                safe_write(chip->index_port, chip->data_port, reg_idx, new_val);
+                /* Write the new value through the same abstraction used to
+                   READ it (chipset_write_reg routes HAL -> PCI config space ->
+                   legacy ports). The old raw safe_write() always went to the
+                   legacy index/data ports, so on a PCI chipset the edit hit
+                   the wrong device while the displayed value came from PCI. */
+                chipset_write_reg((unsigned char)reg_idx, (unsigned char)new_val);
                 g_state.reg_values[reg_idx] = new_val;
                 done = 1;
                 break;
@@ -8031,7 +8035,15 @@ static int main_loop(void)
                 g_state.current_screen = SCREEN_BUSCONFIG;
                 break;
             case KEY_TAB:
-                g_state.current_screen = (g_state.current_screen + 1) % SCREEN_COUNT;
+                /* On the Info screen, TAB toggles the Chipset/SMBIOS sub-view
+                   (otherwise the global screen-cycle would swallow it and the
+                   SMBIOS tab would be unreachable). Elsewhere it cycles screens. */
+                if (g_state.current_screen == SCREEN_INFO) {
+                    handle_info_keys(KEY_TAB);
+                } else {
+                    g_state.current_screen =
+                        (g_state.current_screen + 1) % SCREEN_COUNT;
+                }
                 break;
             default:
                 /* Screen-specific keys */
