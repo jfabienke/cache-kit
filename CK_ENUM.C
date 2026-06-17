@@ -771,6 +771,7 @@ static int isapnp_isolate(void)
 {
     int csn = 0;
     int bit, byte_idx;
+    int fail_count = 0;     /* consecutive checksum failures (EN-M1 guard) */
     unsigned char serial[9];
     unsigned char checksum;
     unsigned char b1, b2;
@@ -785,7 +786,7 @@ static int isapnp_isolate(void)
     isapnp_write(ISAPNP_SET_RD_PORT, g_isapnp_read_port >> 2);
     isapnp_delay();
 
-    while (csn < 32) {
+    while (csn < 32 && fail_count < 64) {
         isapnp_write(ISAPNP_SERIAL_ISOL, 0x00);
         isapnp_delay();
 
@@ -827,9 +828,11 @@ static int isapnp_isolate(void)
         }
 
         if (serial[8] != checksum) {
+            fail_count++;       /* bounded so a noisy bus can't spin forever */
             continue;
         }
 
+        fail_count = 0;         /* reset on a good read */
         csn++;
         isapnp_write(ISAPNP_CSN, csn);
         isapnp_delay();
@@ -845,7 +848,7 @@ isolation_done:
 static void isapnp_read_resources(int csn, unsigned char *irq, unsigned int *io_base)
 {
     unsigned char tag;
-    unsigned char len;
+    unsigned int len;       /* 16-bit: large-resource length is 2 bytes */
     int found_irq = 0, found_io = 0;
     int timeout = 256;
     int i;

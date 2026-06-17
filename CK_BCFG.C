@@ -4079,7 +4079,8 @@ static unsigned char isapnp_read_resource_byte(void)
 /* Parse resource descriptors for a card */
 static void isapnp_parse_resources(unsigned char csn, slot_config_t *cfg)
 {
-    unsigned char tag, len;
+    unsigned char tag;
+    unsigned int len;       /* 16-bit: large-resource length is 2 bytes */
     int done = 0;
     int logdev = 0;
 
