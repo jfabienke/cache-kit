@@ -795,19 +795,33 @@ static int isapnp_isolate(void)
             serial[byte_idx] = 0;
 
             for (bit = 0; bit < 8; bit++) {
+                unsigned char data_bit;
+
                 b1 = inp(g_isapnp_read_port);
                 isapnp_delay();
                 b2 = inp(g_isapnp_read_port);
                 isapnp_delay();
 
                 if (b1 == 0x55 && b2 == 0xAA) {
+                    data_bit = 1;
                     serial[byte_idx] |= (1 << bit);
-                    if (byte_idx < 8) {
-                        checksum = (checksum >> 1) |
-                                   (((checksum ^ (checksum >> 1) ^ 1) & 1) << 7);
-                    }
                 } else if (b1 == 0xFF && b2 == 0xFF) {
-                    goto isolation_done;
+                    goto isolation_done;        /* no card driving the bus */
+                } else {
+                    data_bit = 0;               /* '0' bit (or noise -> 0) */
+                }
+
+                /* Advance the checksum LFSR for EVERY serial-ID bit (bytes
+                 * 0-7), feeding the ACTUAL data bit. The previous code only
+                 * updated it on '1' bits and hardcoded the bit as 1, so the
+                 * computed checksum never matched serial[8] for any card with
+                 * a '0' in its ID (i.e. essentially all of them) and no CSN
+                 * was ever assigned. Byte 8 is the checksum itself (not fed).
+                 * LFSR: new_msb = LFSR[0] ^ LFSR[1] ^ data_bit; shift right. */
+                if (byte_idx < 8) {
+                    unsigned char fb;
+                    fb = (unsigned char)((checksum ^ (checksum >> 1) ^ data_bit) & 1);
+                    checksum = (unsigned char)((checksum >> 1) | (fb << 7));
                 }
             }
         }

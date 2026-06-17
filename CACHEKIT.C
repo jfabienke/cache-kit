@@ -7830,7 +7830,9 @@ static void handle_profiles_keys(int key)
                 }
             }
 
-            if (profile_apply(sel)) {
+            /* profile_apply takes an index, not a pointer; returns 1 on
+               success, -1 on chipset mismatch, 0 on bad index. */
+            if (profile_apply(g_state.profile_cursor) == 1) {
                 g_state.profile_loaded = g_state.profile_cursor;
                 g_state.profile_modified = 0;
                 ui_draw_status_bar("Profile applied successfully");
@@ -7849,7 +7851,7 @@ static void handle_profiles_keys(int key)
             sel = &g_profiles[g_state.profile_cursor];
             sprintf(msg, "Delete profile '%s'?", sel->name);
             if (show_confirm_dialog("Delete Profile", msg, "This cannot be undone!")) {
-                if (profile_delete(sel)) {
+                if (profile_delete(g_state.profile_cursor)) {
                     if (g_state.profile_loaded == g_state.profile_cursor) {
                         g_state.profile_loaded = -1;
                     }

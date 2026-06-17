@@ -15,6 +15,7 @@
 #include <string.h>
 #include <conio.h>
 #include <i86.h>
+#include "CK_PARSE.H"   /* parse_uint_range / parse_mb_to_kb */
 
 /*============================================================================
  * CHIPSET TYPE DEFINITIONS (same as CHIPSET.C)
@@ -408,17 +409,21 @@ static int config_nc_opti(chipset_info_t *info, int region,
  * Index 1Ch (SCAT), Index 1Ah (PEAK)
  * Format: Boundary in 64KB units (everything above = NC)
  */
-static int config_nc_boundary(chipset_info_t *info, unsigned int boundary_kb,
+static int config_nc_boundary(chipset_info_t *info, unsigned long boundary_kb,
                               int dry_run)
 {
     unsigned char reg, val;
+    unsigned long units;
 
+    /* boundary_kb is unsigned long: the caller computes base_mb * 1024 in
+     * unsigned long, so a base >= 64 MB no longer wraps a 16-bit int to a
+     * near-zero boundary (which would have marked nearly all DRAM NC). */
     if ((boundary_kb % 64) != 0) {
         printf("Error: Boundary must be 64KB aligned\n");
         return -1;
     }
 
-    val = (unsigned char)(boundary_kb / 64);
+    units = boundary_kb / 64;       /* default: 64KB units */
 
     switch (info->type) {
         case CHIPSET_CT_SCAT:
@@ -436,7 +441,7 @@ static int config_nc_boundary(chipset_info_t *info, unsigned int boundary_kb,
                 printf("Error: Forex boundary must be 1MB aligned\n");
                 return -1;
             }
-            val = (unsigned char)(boundary_kb / 1024);
+            units = boundary_kb / 1024;
             reg = 0x15;
             break;
         default:
@@ -444,7 +449,15 @@ static int config_nc_boundary(chipset_info_t *info, unsigned int boundary_kb,
             return -1;
     }
 
-    printf("  Index %02Xh <- 0x%02X (Boundary=%uKB, everything above = NC)\n",
+    /* The boundary register is a single byte. */
+    if (units > 255UL) {
+        printf("Error: Boundary %luKB exceeds this chipset's range\n",
+               boundary_kb);
+        return -1;
+    }
+    val = (unsigned char)units;
+
+    printf("  Index %02Xh <- 0x%02X (Boundary=%luKB, everything above = NC)\n",
            reg, val, boundary_kb);
 
     if (!dry_run) {
@@ -696,8 +709,10 @@ static int configure_nc(chipset_info_t *info, int region,
         case CHIPSET_CT_PEAK:
         case CHIPSET_ALI_FINIS:
         case CHIPSET_FOREX:
-            /* For boundary chipsets, base_mb * 1024 = boundary in KB */
-            return config_nc_boundary(info, base_mb * 1024, dry_run);
+            /* For boundary chipsets, base_mb * 1024 = boundary in KB.
+               Compute in unsigned long so a base >= 64 MB cannot wrap. */
+            return config_nc_boundary(info, (unsigned long)base_mb * 1024UL,
+                                      dry_run);
 
         case CHIPSET_UMC491:
             return config_nc_umc(info, base_mb, size_kb, dry_run);
@@ -756,43 +771,81 @@ int main(int argc, char *argv[])
     int region = 0;
     unsigned int base_mb = 0;
     unsigned int size_kb = 0;
+    unsigned long pv;       /* scratch for validated parsing */
     int i;
 
-    /* Parse command line */
+    /* Parse command line. All numeric arguments are validated (parse_uint_range
+       rejects non-numeric/out-of-range input and reports an error) instead of
+       the old atoi(), which silently turned bad input into 0. Bad args exit 2. */
     for (i = 1; i < argc; i++) {
-        if (argv[i][0] == '/' || argv[i][0] == '-') {
-            if (stricmp(&argv[i][1], "S") == 0) {
-                show_config = 1;
-            } else if (strnicmp(&argv[i][1], "SET", 3) == 0) {
-                set_config = 1;
-                /* Check for :n region specifier */
-                if (argv[i][4] == ':') {
-                    region = argv[i][5] - '0';
+        if (argv[i][0] != '/' && argv[i][0] != '-') {
+            fprintf(stderr, "Error: unexpected argument '%s'\n", argv[i]);
+            return 2;
+        }
+
+        if (stricmp(&argv[i][1], "S") == 0) {
+            show_config = 1;
+        } else if (strnicmp(&argv[i][1], "SET", 3) == 0) {
+            set_config = 1;
+            /* Optional :n region specifier (0..3) */
+            if (argv[i][4] == ':') {
+                if (!parse_uint_range(&argv[i][5], 0UL, 3UL, &pv)) {
+                    fprintf(stderr, "Error: invalid region in '%s' (use :0..:3)\n",
+                            argv[i]);
+                    return 2;
                 }
-                /* Get base and size from next args */
-                if (i + 2 < argc) {
-                    base_mb = atoi(argv[++i]);
-                    size_kb = atoi(argv[++i]);
-                }
-            } else if (strnicmp(&argv[i][1], "TEST", 4) == 0) {
-                test_mode = 1;
-                set_config = 1;
-                if (i + 2 < argc) {
-                    base_mb = atoi(argv[++i]);
-                    size_kb = atoi(argv[++i]);
-                }
-            } else if (strnicmp(&argv[i][1], "CLEAR", 5) == 0) {
-                clear_mode = 1;
-                /* Optional region number */
-                if (i + 1 < argc && argv[i+1][0] != '/') {
-                    region = atoi(argv[++i]);
-                } else {
-                    region = -1;  /* Clear all */
-                }
-            } else if (argv[i][1] == '?' || argv[i][1] == 'h' || argv[i][1] == 'H') {
-                print_usage();
-                return 0;
+                region = (int)pv;
             }
+            /* Require <base_mb> <size_kb> */
+            if (i + 2 >= argc) {
+                fprintf(stderr, "Error: /SET requires <base_mb> <size_kb>\n");
+                return 2;
+            }
+            if (!parse_uint_range(argv[++i], 0UL, 4095UL, &pv)) {
+                fprintf(stderr, "Error: invalid base_mb '%s' (0..4095)\n", argv[i]);
+                return 2;
+            }
+            base_mb = (unsigned int)pv;
+            if (!parse_uint_range(argv[++i], 0UL, 65535UL, &pv)) {
+                fprintf(stderr, "Error: invalid size_kb '%s' (0..65535)\n", argv[i]);
+                return 2;
+            }
+            size_kb = (unsigned int)pv;
+        } else if (strnicmp(&argv[i][1], "TEST", 4) == 0) {
+            test_mode = 1;
+            set_config = 1;
+            if (i + 2 >= argc) {
+                fprintf(stderr, "Error: /TEST requires <base_mb> <size_kb>\n");
+                return 2;
+            }
+            if (!parse_uint_range(argv[++i], 0UL, 4095UL, &pv)) {
+                fprintf(stderr, "Error: invalid base_mb '%s' (0..4095)\n", argv[i]);
+                return 2;
+            }
+            base_mb = (unsigned int)pv;
+            if (!parse_uint_range(argv[++i], 0UL, 65535UL, &pv)) {
+                fprintf(stderr, "Error: invalid size_kb '%s' (0..65535)\n", argv[i]);
+                return 2;
+            }
+            size_kb = (unsigned int)pv;
+        } else if (strnicmp(&argv[i][1], "CLEAR", 5) == 0) {
+            clear_mode = 1;
+            /* Optional region number; default = clear all */
+            if (i + 1 < argc && argv[i+1][0] != '/' && argv[i+1][0] != '-') {
+                if (!parse_uint_range(argv[++i], 0UL, 3UL, &pv)) {
+                    fprintf(stderr, "Error: invalid region '%s' (0..3)\n", argv[i]);
+                    return 2;
+                }
+                region = (int)pv;
+            } else {
+                region = -1;  /* Clear all */
+            }
+        } else if (argv[i][1] == '?' || argv[i][1] == 'h' || argv[i][1] == 'H') {
+            print_usage();
+            return 0;
+        } else {
+            fprintf(stderr, "Error: unknown option '%s'\n", argv[i]);
+            return 2;
         }
     }
 

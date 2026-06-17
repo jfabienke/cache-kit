@@ -4343,10 +4343,17 @@ int isapnp_read_card(unsigned char csn, slot_config_t *cfg)
     isapnp_return_to_wait();
     _enable();
 
-    /* Look up name in database */
+    /* Look up name in database. The card reports a 32-bit logical-device ID
+     * (low 16 bits = compressed vendor, high 16 bits = product). The table
+     * stores the vendor in vendor_id (low word, high word 0) and the product
+     * separately in product_id, so we must match BOTH halves. The old code
+     * compared the table's vendor-only value against the full 32-bit ID, which
+     * never matched, leaving the entire database unreachable. */
     name = NULL;
     for (i = 0; g_isapnp_cards[i].name != NULL; i++) {
-        if (g_isapnp_cards[i].vendor_id == cfg->isapnp_vendor) {
+        if (g_isapnp_cards[i].vendor_id == (cfg->isapnp_vendor & 0xFFFFUL) &&
+            g_isapnp_cards[i].product_id ==
+                (unsigned int)((cfg->isapnp_vendor >> 16) & 0xFFFFUL)) {
             name = g_isapnp_cards[i].name;
             break;
         }
