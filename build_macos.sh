@@ -127,7 +127,7 @@ build_cli() {
 build_hal() {
     echo -e "${YELLOW}Building HAL-based CACHEKIT...${NC}"
 
-    local hal_sources="CACHEKIT CK_HAL CK_IO CK_ENUM CK_BCFG CK_INTEL CK_SIS CK_OPTI CK_VIA CK_ALI CK_LEGAC CK_OTHER CK_VIDEO CK_UI"
+    local hal_sources="CACHEKIT CK_HAL CK_IO CK_XMS CK_ENUM CK_BCFG CK_INTEL CK_SIS CK_OPTI CK_VIA CK_ALI CK_LEGAC CK_OTHER CK_VIDEO CK_UI"
     local objs=""
     local all_ok=1
 

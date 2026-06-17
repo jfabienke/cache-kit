@@ -132,6 +132,32 @@ int generic_wbinvd_flush(void);
 /* Cache flush using INVD instruction (386, no writeback) */
 int generic_invd_flush(void);
 
+/*============================================================================
+ * CPU TIER DETECTION (defined in CK_HAL.C)
+ *
+ * g_cpu_tier is set once at startup by ck_detect_cpu() and consulted by the
+ * cache-flush primitives so we never execute an opcode the CPU lacks
+ * (INVD/WBINVD are 486+; the 386 has no on-chip cache instruction).
+ *============================================================================*/
+
+#define CK_CPU_8086     0   /* 8086/8088 - no cache instructions */
+#define CK_CPU_286      2   /* 80286 - no cache instructions */
+#define CK_CPU_386      3   /* 80386 - 32-bit ops, but NO INVD/WBINVD */
+#define CK_CPU_486      4   /* 80486+ - INVD/WBINVD available */
+#define CK_CPU_PENTIUM  5   /* Pentium+ - CPUID available */
+
+extern unsigned char g_cpu_tier;    /* one of CK_CPU_*; 0 until ck_detect_cpu() */
+
+void ck_detect_cpu(void);           /* detect CPU tier; call once at startup */
+
+/*
+ * Tier-aware cache flush. Issues WBINVD only on 486+, and is a safe no-op on
+ * 386 and earlier (which have no CPU cache-management opcode). This replaces
+ * unconditional WBINVD/INVD, which fault (#UD) on a CPU that lacks them.
+ * Requires ck_detect_cpu() to have run first.
+ */
+int generic_safe_flush(void);
+
 /* A20 control via Port 0x92 (Fast A20 on AT-compatible systems) */
 int generic_port92_a20_get(void);
 int generic_port92_a20_set(int enable);
@@ -213,6 +239,29 @@ int safe_port_probe(unsigned int port);
 /* Safe read/write with documentation (no actual timeout in DOS real mode) */
 unsigned char safe_read_byte(unsigned int port);
 void safe_write_byte(unsigned int port, unsigned char val);
+
+/*============================================================================
+ * INTERRUPT FLAG SAVE/RESTORE (defined in CK_IO.C)
+ *
+ * Unlike _disable()/_enable() (which unconditionally re-enable), these save
+ * the prior IF state and restore it, so they nest correctly and never enable
+ * interrupts that were already disabled by the caller.
+ *============================================================================*/
+
+unsigned int ck_irq_save(void);             /* CLI; return prior FLAGS */
+void ck_irq_restore(unsigned int flags);    /* restore FLAGS (and IF) */
+
+/*============================================================================
+ * BIOS SIGNATURE SCAN (defined in CK_IO.C)
+ *
+ * Scan a real-mode segment range [seg_start, seg_end] on 16-byte (paragraph)
+ * boundaries for a byte signature. Walks segment-by-segment via MK_FP so it
+ * never relies on far-pointer offset arithmetic (which wraps at 64KB).
+ * Returns a far pointer to the first match, or NULL (0) if not found.
+ *============================================================================*/
+
+unsigned char far *io_find_sig(unsigned int seg_start, unsigned int seg_end,
+                               const char *sig, int siglen);
 
 /*============================================================================
  * CHIPSET OPS DECLARATIONS (defined in CK_*.C files)

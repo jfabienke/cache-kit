@@ -42,36 +42,57 @@ void io_write_word(unsigned int port, unsigned int val)
 }
 
 /*
- * 32-bit port I/O using inline assembly (386+ required)
- * The 16-bit conio.h doesn't provide inpd/outpd, so we implement them.
+ * 32-bit port I/O (386+ required; call sites are gated by CPU/bus checks).
+ * The 16-bit conio.h provides no inpd/outpd, so these are implemented via
+ * #pragma aux, which gives the optimizer correct register clobber info
+ * (a bare _asm block hides the 32-bit EAX clobber from the compiler).
+ *
+ * IN/OUT support only AL/AX/EAX, so the dword is read into / assembled in EAX.
+ * A 32-bit return/parameter occupies a 16-bit register PAIR (high:low):
+ *   io_read_dword  returns DX:AX   (DX = high word, AX = low word)
+ *   io_write_dword takes  port=DX, val=CX:BX (CX = high word, BX = low word)
  */
-unsigned long io_read_dword(unsigned int port)
-{
-    unsigned long val;
-    _asm {
-        .386
-        mov dx, port
-        in eax, dx
-        mov word ptr val, ax
-        shr eax, 16
-        mov word ptr val+2, ax
-    }
-    return val;
-}
+unsigned long io_read_dword(unsigned int port);
+#pragma aux io_read_dword =     \
+    ".386"                      \
+    "in     eax, dx"            \
+    "mov    edx, eax"           \
+    "shr    edx, 16"            \
+    parm   [dx]                 \
+    value  [dx ax];
 
-void io_write_dword(unsigned int port, unsigned long val)
-{
-    _asm {
-        .386
-        mov ax, word ptr val
-        mov dx, ax
-        mov ax, word ptr val+2
-        shl eax, 16
-        mov ax, dx
-        mov dx, port
-        out dx, eax
-    }
-}
+void io_write_dword(unsigned int port, unsigned long val);
+#pragma aux io_write_dword =    \
+    ".386"                      \
+    "mov    ax, cx"             \
+    "shl    eax, 16"            \
+    "mov    ax, bx"             \
+    "out    dx, eax"            \
+    parm   [dx] [cx bx]         \
+    modify [ax];
+
+/*============================================================================
+ * INTERRUPT FLAG SAVE / RESTORE
+ *
+ * ck_irq_save() returns the current FLAGS and clears IF (CLI).
+ * ck_irq_restore() restores FLAGS (including the prior IF state).
+ * Unlike _disable()/_enable(), this nests correctly: restoring leaves IF
+ * exactly as it was, so an already-disabled caller is not re-enabled.
+ * All 16-bit ops - safe on 8086 and up.
+ *============================================================================*/
+
+unsigned int ck_irq_save(void);
+#pragma aux ck_irq_save =       \
+    "pushf"                     \
+    "pop ax"                    \
+    "cli"                       \
+    value [ax];
+
+void ck_irq_restore(unsigned int flags);
+#pragma aux ck_irq_restore =    \
+    "push ax"                   \
+    "popf"                      \
+    parm [ax];
 
 /*============================================================================
  * PCI CONFIGURATION SPACE ACCESS
@@ -241,6 +262,39 @@ unsigned long pci_read_config(unsigned char bus, unsigned char dev,
                               unsigned char func, unsigned char reg)
 {
     return pci_read_config_dword(bus, dev, func, reg);
+}
+
+/*============================================================================
+ * BIOS SIGNATURE SCAN
+ *
+ * Walk [seg_start, seg_end] one paragraph (16 bytes) at a time, rebuilding a
+ * normalized far pointer with MK_FP each step. This is the correct way to
+ * scan the BIOS area: advancing a far pointer's offset wraps at 64KB without
+ * bumping the segment, so a naive "ptr += 16; while (ptr < end)" loop never
+ * crosses a segment boundary (and can spin forever). Signatures of interest
+ * (SMBIOS "_SM_", ACPI "RSD PTR ") are 16-byte aligned, so paragraph stepping
+ * finds them. Returns far pointer to the first match, or NULL.
+ *============================================================================*/
+
+unsigned char far *io_find_sig(unsigned int seg_start, unsigned int seg_end,
+                               const char *sig, int siglen)
+{
+    unsigned int seg;
+    int i;
+    unsigned char far *p;
+
+    for (seg = seg_start; ; seg++) {
+        p = (unsigned char far *)MK_FP(seg, 0);
+        for (i = 0; i < siglen; i++) {
+            if (p[i] != (unsigned char)sig[i])
+                break;
+        }
+        if (i == siglen)
+            return p;               /* full signature matched */
+        if (seg >= seg_end)
+            break;                  /* done; break before seg++ can wrap */
+    }
+    return (unsigned char far *)0;
 }
 
 /*============================================================================

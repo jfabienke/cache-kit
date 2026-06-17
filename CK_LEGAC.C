@@ -379,7 +379,7 @@ const chipset_ops_t ops_headland_ht12 = {
     .nc_clear = hal_stub_unsupported_i,
 
     /* Shadow RAM (info-only) */
-    .shadow_regions = 4,
+    .shadow_regions = 0,  /* shadow ops are stubs; report 0 (was 4 phantom) */
     .shadow_get = hal_stub_unsupported_i,
     .shadow_set = hal_stub_unsupported_ii,
 
@@ -703,11 +703,14 @@ const chipset_ops_t ops_via_vt82c310 = {
     .cache_flush = generic_wbinvd_flush,
     .is_writeback = 0,
 
-    /* NC regions (2 regions, 64KB granularity) */
-    .nc_count = 2,
-    .nc_granularity = 64,
-    .nc_max_kb = 4096,
-    .nc_read = hal_stub_nc_read,  /* TODO: implement if needed */
+    /* NC regions: the VT82C310 hardware has 2, but the ops below are
+       unimplemented stubs. Report 0 so the UI does not present phantom
+       editable regions that silently do nothing.
+       TODO: implement real VT82C310 NC support, then restore nc_count = 2. */
+    .nc_count = 0,
+    .nc_granularity = 0,
+    .nc_max_kb = 0,
+    .nc_read = hal_stub_nc_read,
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,
 
@@ -768,10 +771,10 @@ const chipset_ops_t ops_vlsi_vl82c311 = {
     .cache_flush = generic_invd_flush,
     .is_writeback = 0,
 
-    /* NC regions (1 region, 64KB) */
-    .nc_count = 1,
-    .nc_granularity = 64,
-    .nc_max_kb = 64,
+    /* NC regions: unimplemented stub; report 0 (no phantom editable regions). */
+    .nc_count = 0,
+    .nc_granularity = 0,
+    .nc_max_kb = 0,
     .nc_read = hal_stub_nc_read,
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,
@@ -865,10 +868,10 @@ const chipset_ops_t ops_ct_peak = {
     .cache_flush = generic_wbinvd_flush,
     .is_writeback = 0,
 
-    /* NC regions (boundary-based, 1 region) */
-    .nc_count = 1,
-    .nc_granularity = 64,
-    .nc_max_kb = 64,
+    /* NC regions: boundary-based, unimplemented stub; report 0. */
+    .nc_count = 0,
+    .nc_granularity = 0,
+    .nc_max_kb = 0,
     .nc_read = hal_stub_nc_read,
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,
@@ -927,10 +930,10 @@ const chipset_ops_t ops_ct_scat = {
     .cache_flush = generic_invd_flush,
     .is_writeback = 0,
 
-    /* NC regions (boundary-based) */
-    .nc_count = 1,
-    .nc_granularity = 64,
-    .nc_max_kb = 64,
+    /* NC regions: boundary-based, unimplemented stub; report 0. */
+    .nc_count = 0,
+    .nc_granularity = 0,
+    .nc_max_kb = 0,
     .nc_read = hal_stub_nc_read,
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,
@@ -993,10 +996,10 @@ const chipset_ops_t ops_ali_finis = {
     .cache_flush = generic_wbinvd_flush,
     .is_writeback = 0,
 
-    /* NC regions (boundary-based) */
-    .nc_count = 1,
-    .nc_granularity = 64,
-    .nc_max_kb = 64,
+    /* NC regions: boundary-based, unimplemented stub; report 0. */
+    .nc_count = 0,
+    .nc_granularity = 0,
+    .nc_max_kb = 0,
     .nc_read = hal_stub_nc_read,
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,

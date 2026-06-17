@@ -536,10 +536,12 @@ const chipset_ops_t ops_faraday = {
     .cache_flush = generic_wbinvd_flush,
     .is_writeback = 0,
 
-    /* NC regions (limited implementation - info only for now) */
-    .nc_count = 3,
-    .nc_granularity = 128,
-    .nc_max_kb = 2048,
+    /* NC regions: Faraday hardware has 3, but the ops are unimplemented
+       stubs. Report 0 so the UI shows no phantom editable regions.
+       TODO: implement real Faraday NC support, then restore nc_count = 3. */
+    .nc_count = 0,
+    .nc_granularity = 0,
+    .nc_max_kb = 0,
     .nc_read = hal_stub_nc_read,
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,
@@ -668,10 +670,10 @@ const chipset_ops_t ops_mic_9391 = {
     .cache_flush = mic9391_cache_flush,  /* Custom flush with HW trigger */
     .is_writeback = 1,
 
-    /* NC regions (limited - info only for now) */
-    .nc_count = 1,
-    .nc_granularity = 64,
-    .nc_max_kb = 1024,
+    /* NC regions: unimplemented stub; report 0 (no phantom editable regions). */
+    .nc_count = 0,
+    .nc_granularity = 0,
+    .nc_max_kb = 0,
     .nc_read = hal_stub_nc_read,
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,
@@ -886,10 +888,10 @@ const chipset_ops_t ops_forex = {
     .cache_flush = generic_wbinvd_flush,
     .is_writeback = 0,
 
-    /* NC regions (boundary-based) */
-    .nc_count = 1,
-    .nc_granularity = 64,
-    .nc_max_kb = 1024,
+    /* NC regions: boundary-based, unimplemented stub; report 0. */
+    .nc_count = 0,
+    .nc_granularity = 0,
+    .nc_max_kb = 0,
     .nc_read = hal_stub_nc_read,
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,
@@ -999,10 +1001,10 @@ const chipset_ops_t ops_suntac = {
     .cache_flush = generic_wbinvd_flush,
     .is_writeback = 0,
 
-    /* NC regions (shadow-based) */
-    .nc_count = 1,
-    .nc_granularity = 64,
-    .nc_max_kb = 64,
+    /* NC regions: shadow-based, unimplemented stub; report 0. */
+    .nc_count = 0,
+    .nc_granularity = 0,
+    .nc_max_kb = 0,
     .nc_read = hal_stub_nc_read,
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,

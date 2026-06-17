@@ -2981,6 +2981,10 @@ static void hal_init_chipset(void)
 {
     chipset_info_t *info = &g_state.chipset;
 
+    /* Detect CPU tier first so the cache-flush primitives know whether
+       WBINVD is available (486+). Must run before any cache_flush(). */
+    ck_detect_cpu();
+
     /* Detect chipset using HAL */
     detect_chipset_hal();
 
@@ -3089,6 +3093,27 @@ static int hal_nc_clear(int idx)
         return g_hal->nc_clear(idx);
     }
     return HAL_ERR_UNSUP;
+}
+
+/*
+ * nc_write_supported - True only when the detected chipset has a REAL nc_write
+ * implementation (not the unimplemented stub). Several chipsets advertise
+ * nc_count > 0 but wire hal_stub_unsupported_iull, which silently fails. The
+ * NC config screen uses this gate so it does not present phantom "editable"
+ * regions that do nothing - which would mislead the user into believing a
+ * memory window is fenced from the cache when it is not.
+ */
+static int nc_write_supported(void)
+{
+    if (g_hal == NULL)
+        return 0;
+    if (g_hal->nc_count == 0)
+        return 0;
+    if (g_hal->nc_write == NULL)
+        return 0;
+    if (g_hal->nc_write == hal_stub_unsupported_iull)
+        return 0;
+    return 1;
 }
 
 /*
@@ -7430,6 +7455,10 @@ static void handle_nc_keys(int key)
         case 'c':
         case 'C':
             /* Clear all NC regions with confirmation */
+            if (!nc_write_supported()) {
+                ui_draw_status_bar("NC region editing not supported on this chipset");
+                break;
+            }
             if (show_confirm_dialog("Clear NC Regions",
                                     "Clear ALL NC regions?",
                                     "This writes to chipset registers!")) {
@@ -7439,6 +7468,10 @@ static void handle_nc_keys(int key)
         case 'a':
         case 'A':
             /* Auto-configure 512KB NC region at top of RAM */
+            if (!nc_write_supported()) {
+                ui_draw_status_bar("NC region editing not supported on this chipset");
+                break;
+            }
             if (g_state.chipset.nc_strategy == NC_RANGE ||
                 g_state.chipset.nc_strategy == NC_BOUNDARY) {
                 char msg[48];
