@@ -125,8 +125,10 @@ static int umc491_nc_read(int idx, nc_region_t *r)
 
     if (size_val & 0x80) {  /* Enable bit */
         r->active = 1;
-        /* Base: 16KB units (shift by 4 to get KB) */
-        r->base_kb = (unsigned long)base_val << 4;
+        /* Base: 64KB units (A23:A16). The code previously used 16KB units
+           (<<4), scaling the base 4x too small; A23:A16 is 64KB/unit.
+           TODO: VERIFY on 86Box/PCem vs the UM82C491 datasheet. */
+        r->base_kb = (unsigned long)base_val << 6;
         /* Size: 8KB << size_code */
         size_code = (size_val >> 4) & 0x07;
         r->size_kb = 8UL << size_code;
@@ -151,7 +153,12 @@ static int umc491_nc_write(int idx, unsigned long base_kb, unsigned long size_kb
         return HAL_OK;
     }
 
-    /* Calculate size code */
+    /* Align base to the 64KB unit and REJECT (don't truncate) a base that
+       overflows the 8-bit base field, which would fence a wrong address. */
+    base_kb = (base_kb + 63) & ~63UL;
+    if ((base_kb >> 6) > 0xFFUL) return HAL_ERR_PARAM;
+
+    /* Calculate size code: 8KB << code, code 0..7 (8KB..1MB). */
     if (size_kb <= 8) size_code = 0;
     else if (size_kb <= 16) size_code = 1;
     else if (size_kb <= 32) size_code = 2;
@@ -159,11 +166,12 @@ static int umc491_nc_write(int idx, unsigned long base_kb, unsigned long size_kb
     else if (size_kb <= 128) size_code = 4;
     else if (size_kb <= 256) size_code = 5;
     else if (size_kb <= 512) size_code = 6;
-    else size_code = 7;
+    else if (size_kb <= 1024) size_code = 7;
+    else return HAL_ERR_PARAM;
 
-    /* Encode base (16KB units) and size with enable */
-    base_val = (unsigned char)((base_kb >> 4) & 0xFF);
-    size_val = 0x80 | (size_code << 4);  /* Enable + size code */
+    /* Encode base (64KB units) and size with enable */
+    base_val = (unsigned char)((base_kb >> 6) & 0xFF);
+    size_val = (unsigned char)(0x80 | (size_code << 4));  /* Enable + size */
 
     legacy_write_22_23(UMC491_NC_BASE_REG, base_val);
     legacy_write_22_23(UMC491_NC_SIZE_REG, size_val);
@@ -324,12 +332,15 @@ static int eteq_nc_read(int idx, nc_region_t *r)
     hi = legacy_read_22_24(size_reg);
 
     size_code = hi >> 4;
+    if (size_code > 7) size_code = 7;   /* reserved codes 8-15 -> clamp */
 
     if (size_code != 0) {
         r->active = 1;
-        /* OPTi encoding: base = ((hi & 0x0F) << 12) | (lo << 4) */
-        r->base_kb = ((unsigned long)(hi & 0x0F) << 12) |
-                     ((unsigned long)lo << 4);
+        /* OPTi-compatible encoding, base in 64KB units (A23:A16) + A27:A24
+           nibble. Was 16KB units (<<12/<<4), 4x too small.
+           TODO: VERIFY vs datasheet (Eteq 82C495 / OPTi). */
+        r->base_kb = ((unsigned long)(hi & 0x0F) << 14) |
+                     ((unsigned long)lo << 6);
         r->size_kb = 8UL << (size_code - 1);
     }
 
@@ -355,18 +366,24 @@ static int eteq_nc_write(int idx, unsigned long base_kb, unsigned long size_kb)
         return HAL_OK;
     }
 
-    /* Calculate size code (OPTi style) */
+    /* Align base to 64KB and REJECT (don't truncate) an out-of-range base
+       (12-bit base field, A27:A16). */
+    base_kb = (base_kb + 63) & ~63UL;
+    if ((base_kb >> 6) > 0xFFFUL) return HAL_ERR_PARAM;
+
+    /* Calculate size code (OPTi style): code N => 8KB << (N-1), max 512KB. */
     if (size_kb <= 8) size_code = 1;
     else if (size_kb <= 16) size_code = 2;
     else if (size_kb <= 32) size_code = 3;
     else if (size_kb <= 64) size_code = 4;
     else if (size_kb <= 128) size_code = 5;
     else if (size_kb <= 256) size_code = 6;
-    else size_code = 7;  /* 512KB max */
+    else if (size_kb <= 512) size_code = 7;
+    else return HAL_ERR_PARAM;
 
-    /* Encode (OPTi style) */
-    base_val = (unsigned char)((base_kb >> 4) & 0xFF);
-    size_val = (size_code << 4) | ((unsigned char)((base_kb >> 12) & 0x0F));
+    /* Encode (OPTi style, 64KB base units) */
+    base_val = (unsigned char)((base_kb >> 6) & 0xFF);
+    size_val = (unsigned char)((size_code << 4) | ((base_kb >> 14) & 0x0F));
 
     legacy_write_22_24(base_reg, base_val);
     legacy_write_22_24(size_reg, size_val);

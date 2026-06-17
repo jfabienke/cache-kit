@@ -259,7 +259,13 @@ static int via_pci_nc_write(int idx, unsigned long base_kb, unsigned long size_k
         return HAL_ERR_PARAM;
     }
 
-    /* Calculate size code */
+    /* REJECT (don't truncate) a base above the 8-bit base byte's range
+       (64KB units => ~16MB); a truncated base fences a wrong address (IS-M4). */
+    if ((base_kb >> 6) > 0xFFUL) {
+        return HAL_ERR_PARAM;
+    }
+
+    /* Calculate size code; reject beyond the 4MB-per-region max. */
     if (size_kb == 0) {
         size_code = 0;  /* Disabled */
     } else if (size_kb <= 64) {
@@ -274,8 +280,10 @@ static int via_pci_nc_write(int idx, unsigned long base_kb, unsigned long size_k
         size_code = 5;
     } else if (size_kb <= 2048) {
         size_code = 6;
-    } else {
+    } else if (size_kb <= 4096) {
         size_code = 7;  /* 4MB max */
+    } else {
+        return HAL_ERR_PARAM;
     }
 
     /* Encode base: 64KB units */
