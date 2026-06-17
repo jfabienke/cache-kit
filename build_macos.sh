@@ -112,11 +112,18 @@ build_cli() {
         fi
     fi
 
-    # CACHETST - SKIPPED: requires 486+ instructions (WBINVD) in inline assembly
-    # This tool has mixed 16/32-bit assembly that needs source changes for macOS build
-    # The cache flush testing is also available in the main CACHEKIT TUI
+    # CACHETST - now builds: 386/486 inline asm has explicit .386/.486
+    # directives and the CPU detection is gated by cpu_is_386_plus().
     if [ -f "CACHETST.C" ]; then
-        echo -e "  ${YELLOW}Skipping CACHETST.C (mixed 16/32-bit asm needs DOS-hosted build)${NC}"
+        if compile "CACHETST.C"; then
+            if link_exe "CACHETST" "CACHETST.OBJ"; then
+                ((success++))
+            else
+                ((failed++))
+            fi
+        else
+            ((failed++))
+        fi
     fi
 
     echo ""
