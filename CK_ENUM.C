@@ -1024,22 +1024,16 @@ static int acpi_checksum_valid(unsigned char far *table, unsigned int len)
 static unsigned char far *find_rsdp(void)
 {
     unsigned char far *ptr;
-    unsigned long sig_lo, sig_hi;
 
-    /* Search BIOS area on 16-byte boundaries */
-    for (ptr = (unsigned char far *)MK_FP(0xE000, 0x0000);
-         ptr < (unsigned char far *)MK_FP(0xFFFF, 0x0010);
-         ptr += 16) {
-
-        sig_lo = *(unsigned long far *)ptr;
-        sig_hi = *(unsigned long far *)(ptr + 4);
-
-        if (sig_lo == RSDP_SIG_LO && sig_hi == RSDP_SIG_HI) {
-            /* Found "RSD PTR " - verify checksum (first 20 bytes for ACPI 1.0) */
-            if (acpi_checksum_valid(ptr, 20)) {
-                return ptr;
-            }
-        }
+    /* Scan the BIOS area (E0000-FFFFF) on 16-byte boundaries via the
+       segment-wise helper. The old loop advanced a far pointer's 16-bit
+       offset (`ptr += 16`) and compared against an end far pointer; once the
+       offset wrapped 0xFFF0->0x0000 within segment 0xE000 the segment never
+       advanced, so it scanned the same 64KB window FOREVER when no RSDP was
+       present in that segment. io_find_sig walks segment by segment. */
+    ptr = io_find_sig(0xE000, 0xFFFF, "RSD PTR ", 8);
+    if (ptr != 0 && acpi_checksum_valid(ptr, 20)) {
+        return ptr;             /* signature + valid ACPI 1.0 checksum */
     }
 
     return (unsigned char far *)0;

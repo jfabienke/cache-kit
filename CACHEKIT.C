@@ -1948,51 +1948,32 @@ static void parse_smbios_type17(unsigned char far *table, smbios_info_t *info)
 static int find_smbios_entry(smbios_info_t *info)
 {
     unsigned char far *ptr;
-    unsigned char far *end;
-    unsigned long sig;
     unsigned char entry_len;
     unsigned long table_addr;
-    unsigned int table_len;
 
-    ptr = (unsigned char far *)0xF0000000L;
-    end = (unsigned char far *)0xFFFF0000L;
+    /* Locate the "_SM_" anchor on a 16-byte boundary via the segment-wise
+       scan. The old `while (ptr < end)` far-pointer loop advanced only the
+       16-bit offset, so once it wrapped within a segment it never reached the
+       end pointer (it could spin / miss the anchor). */
+    ptr = io_find_sig(0xF000, 0xFFFF, "_SM_", 4);
+    if (ptr == 0)
+        return 0;
 
-    while (ptr < end) {
-        sig = *(unsigned long far *)ptr;
+    /* Verify the entry point (length + checksum). */
+    entry_len = ptr[0x05];
+    if (entry_len < 0x1F || !smbios_verify_checksum(ptr, entry_len))
+        return 0;
 
-        if (sig == SMBIOS_ANCHOR) {
-            /* Found "_SM_" - verify entry point */
-            entry_len = ptr[0x05];
+    info->version_major = ptr[0x06];
+    info->version_minor = ptr[0x07];
 
-            if (entry_len >= 0x1F && smbios_verify_checksum(ptr, entry_len)) {
-                /* Valid SMBIOS entry point */
-                info->version_major = ptr[0x06];
-                info->version_minor = ptr[0x07];
+    /* Table address at offset 0x18, structure count at 0x1C */
+    table_addr = *(unsigned long far *)(ptr + 0x18);
+    info->table_count = *(unsigned int far *)(ptr + 0x1C);
+    info->entry_found = 1;
 
-                /* Table address at offset 0x18 (4 bytes) */
-                table_addr = *(unsigned long far *)(ptr + 0x18);
-
-                /* Table length at offset 0x16 (2 bytes) */
-                table_len = *(unsigned int far *)(ptr + 0x16);
-
-                /* Number of structures at offset 0x1C (2 bytes) */
-                info->table_count = *(unsigned int far *)(ptr + 0x1C);
-
-                info->entry_found = 1;
-
-                /* Check if table is accessible (< 1MB) */
-                if (table_addr < 0x100000L) {
-                    return 1;  /* Success - table accessible */
-                } else {
-                    return 0;  /* Table above 1MB, can't access in real mode */
-                }
-            }
-        }
-
-        ptr += 16;  /* Entry points are 16-byte aligned */
-    }
-
-    return 0;  /* Not found */
+    /* Table must be accessible (< 1MB) in real mode */
+    return (table_addr < 0x100000L) ? 1 : 0;
 }
 
 /* Main SMBIOS parsing entry point */
@@ -2013,15 +1994,11 @@ static void parse_smbios_tables(smbios_info_t *info)
         return;
     }
 
-    /* Get table base address from entry point */
-    ptr = (unsigned char far *)0xF0000000L;
-    while (ptr < (unsigned char far *)0xFFFF0000L) {
-        if (*(unsigned long far *)ptr == SMBIOS_ANCHOR) {
-            table_addr = *(unsigned long far *)(ptr + 0x18);
-            break;
-        }
-        ptr += 16;
-    }
+    /* Re-locate the entry point (segment-wise) to read the table base. */
+    ptr = io_find_sig(0xF000, 0xFFFF, "_SM_", 4);
+    if (ptr == 0)
+        return;
+    table_addr = *(unsigned long far *)(ptr + 0x18);
 
     /* Access table (must be < 1MB) */
     if (table_addr >= 0x100000L) {
@@ -2091,41 +2068,24 @@ static int acpi_verify_checksum(unsigned char far *table, unsigned int len)
 static int find_acpi_rsdp(acpi_info_t *info)
 {
     unsigned char far *ptr;
-    unsigned char far *end;
-    unsigned long sig_lo, sig_hi;
     int i;
 
-    ptr = (unsigned char far *)0xE0000000L;
-    end = (unsigned char far *)0xFFFF0000L;
+    /* Segment-wise scan for "RSD PTR " (the old far-pointer offset loop could
+       wrap within a segment and spin / miss the anchor). */
+    ptr = io_find_sig(0xE000, 0xFFFF, "RSD PTR ", 8);
+    if (ptr == 0 || !acpi_verify_checksum(ptr, 20))
+        return 0;
 
-    while (ptr < end) {
-        sig_lo = *(unsigned long far *)ptr;
-        sig_hi = *(unsigned long far *)(ptr + 4);
-
-        if (sig_lo == RSDP_SIGNATURE_LO && sig_hi == RSDP_SIGNATURE_HI) {
-            /* Found "RSD PTR " - verify checksum (first 20 bytes) */
-            if (acpi_verify_checksum(ptr, 20)) {
-                /* Extract OEM ID (6 bytes at offset 9) */
-                for (i = 0; i < 6; i++) {
-                    info->oem_id[i] = ptr[9 + i];
-                }
-                info->oem_id[6] = '\0';
-
-                /* Revision at offset 15 */
-                info->revision = ptr[15];
-
-                /* RSDT address at offset 16 (4 bytes) */
-                info->rsdt_addr = *(unsigned long far *)(ptr + 16);
-
-                info->rsdp_found = 1;
-                return 1;
-            }
-        }
-
-        ptr += 16;  /* RSDP is 16-byte aligned */
+    /* OEM ID (6 bytes at offset 9) */
+    for (i = 0; i < 6; i++) {
+        info->oem_id[i] = ptr[9 + i];
     }
+    info->oem_id[6] = '\0';
 
-    return 0;
+    info->revision = ptr[15];                       /* revision at offset 15 */
+    info->rsdt_addr = *(unsigned long far *)(ptr + 16);  /* RSDT addr at 16 */
+    info->rsdp_found = 1;
+    return 1;
 }
 
 /* Parse RSDT and enumerate tables */
