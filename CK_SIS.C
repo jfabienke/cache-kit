@@ -151,10 +151,20 @@ static int sis460_nc_write(int idx, unsigned long base_kb, unsigned long size_kb
 
     if (idx < 0 || idx >= SIS460_NC_COUNT) return HAL_ERR_PARAM;
 
-    /* Align base to 64KB */
-    base_kb = (base_kb + 63) & ~63UL;
+    /* size 0 = disable; don't program a spurious 64KB region. */
+    if (size_kb == 0) {
+        legacy_write_22_23(SIS460_NC_BASE + idx * 2 + 1, 0x00);
+        return HAL_OK;
+    }
 
-    /* Calculate size code */
+    /* Align base to 64KB and REJECT (don't silently truncate) a base that
+       won't fit the 8-bit base field (64KB units => ~16MB max). A truncated
+       base would fence the wrong physical address. TODO: confirm the base
+       unit (code uses 64KB/A23:A16; the comment says A21:A14) vs datasheet. */
+    base_kb = (base_kb + 63) & ~63UL;
+    if ((base_kb >> 6) > 0xFFUL) return HAL_ERR_PARAM;
+
+    /* Size code: code N => 64KB << (N-1). Reject sizes beyond the field. */
     if (size_kb <= 64) size_code = 1;
     else if (size_kb <= 128) size_code = 2;
     else if (size_kb <= 256) size_code = 3;
@@ -166,10 +176,10 @@ static int sis460_nc_write(int idx, unsigned long base_kb, unsigned long size_kb
     else if (size_kb <= 16384) size_code = 9;
     else if (size_kb <= 32768) size_code = 10;
     else if (size_kb <= 65536) size_code = 11;
-    else size_code = 12;
+    else return HAL_ERR_PARAM;
 
     base_reg = (unsigned char)(base_kb >> 6);
-    ctrl_reg = size_code << 4;
+    ctrl_reg = (unsigned char)(size_code << 4);
 
     legacy_write_22_23(SIS460_NC_BASE + idx * 2, base_reg);
     legacy_write_22_23(SIS460_NC_BASE + idx * 2 + 1, ctrl_reg);
@@ -262,10 +272,18 @@ static int sis496_nc_write(int idx, unsigned long base_kb, unsigned long size_kb
 
     if (idx < 0 || idx >= SIS496_NC_COUNT) return HAL_ERR_PARAM;
 
-    /* Align base to 64KB */
-    base_kb = (base_kb + 63) & ~63UL;
+    /* size 0 = disable */
+    if (size_kb == 0) {
+        pci_write_config_byte(0, 0, 0, SIS496_NC_BASE + idx * 2 + 1, 0x00);
+        return HAL_OK;
+    }
 
-    /* Calculate size code (same as 460) */
+    /* Align base to 64KB; reject (don't truncate) if it overflows the 8-bit
+       base field. */
+    base_kb = (base_kb + 63) & ~63UL;
+    if ((base_kb >> 6) > 0xFFUL) return HAL_ERR_PARAM;
+
+    /* Calculate size code (same ladder as 460, capped at the 496's 8MB max) */
     if (size_kb <= 64) size_code = 1;
     else if (size_kb <= 128) size_code = 2;
     else if (size_kb <= 256) size_code = 3;
@@ -273,10 +291,20 @@ static int sis496_nc_write(int idx, unsigned long base_kb, unsigned long size_kb
     else if (size_kb <= 1024) size_code = 5;
     else if (size_kb <= 2048) size_code = 6;
     else if (size_kb <= 4096) size_code = 7;
-    else size_code = 8;
+    else if (size_kb <= 8192) size_code = 8;
+    else return HAL_ERR_PARAM;
 
     base_reg = (unsigned char)(base_kb >> 6);
-    ctrl_reg = size_code << 4;
+    ctrl_reg = (unsigned char)(size_code << 4);
+
+    /* Region 2's high byte (0x55) carries the size code only in its upper
+       nibble; the read path masks `&0xF0`, so preserve the low nibble
+       (reserved/base-extension) on write to keep read/write symmetric (IS-C2). */
+    if (idx == 2) {
+        unsigned char cur =
+            pci_read_config_byte(0, 0, 0, SIS496_NC_BASE + idx * 2 + 1);
+        ctrl_reg = (unsigned char)((ctrl_reg & 0xF0) | (cur & 0x0F));
+    }
 
     pci_write_config_byte(0, 0, 0, SIS496_NC_BASE + idx * 2, base_reg);
     pci_write_config_byte(0, 0, 0, SIS496_NC_BASE + idx * 2 + 1, ctrl_reg);
@@ -403,11 +431,19 @@ static int sis5598_nc_write(int idx, unsigned long base_kb, unsigned long size_k
 
     if (idx < 0 || idx >= SIS5598_NC_COUNT) return HAL_ERR_PARAM;
 
-    /* Align base to 64KB */
-    base_kb = (base_kb + 63) & ~63UL;
+    /* size 0 = disable via the enable register */
+    if (size_kb == 0) {
+        enable = pci_read_config_byte(0, 0, 0, SIS5598_NC_ENABLE);
+        enable &= (unsigned char)~(1 << idx);
+        pci_write_config_byte(0, 0, 0, SIS5598_NC_ENABLE, enable);
+        return HAL_OK;
+    }
 
-    /* Clamp to 384MB window */
-    if (base_kb > 393216UL) base_kb = 393216UL;
+    /* Align base to 64KB. The base is a 13-bit field in 64KB units; REJECT an
+       out-of-range base instead of silently clamping to 384MB and masking
+       `& 0x1FFF` (which would fence a different, unintended address). */
+    base_kb = (base_kb + 63) & ~63UL;
+    if ((base_kb >> 6) > 0x1FFFUL) return HAL_ERR_PARAM;
 
     /* Calculate size code: 0=64K, 1=128K, 2=256K, 3=512K, 4=1M, 5=2M, 6=4M, 7=8M */
     if (size_kb <= 64) size_code = 0;
@@ -417,10 +453,15 @@ static int sis5598_nc_write(int idx, unsigned long base_kb, unsigned long size_k
     else if (size_kb <= 1024) size_code = 4;
     else if (size_kb <= 2048) size_code = 5;
     else if (size_kb <= 4096) size_code = 6;
-    else size_code = 7;
+    else if (size_kb <= 8192) size_code = 7;
+    else return HAL_ERR_PARAM;
 
-    /* Convert base to 64KB units */
-    base_unit = (unsigned int)(base_kb >> 6) & 0x1FFF;
+    /* Reject a region that would run past the 13-bit (512MB) base window. */
+    if ((base_kb + size_kb) > ((unsigned long)0x2000 * 64UL))
+        return HAL_ERR_PARAM;
+
+    /* Convert base to 64KB units (guaranteed <= 0x1FFF by the check above). */
+    base_unit = (unsigned int)(base_kb >> 6);
 
     /* Encode: bits 15:13 = size, bits 12:0 = base */
     val = ((unsigned int)size_code << 13) | base_unit;
