@@ -29,34 +29,136 @@ extern void io_write_byte(unsigned int port, unsigned char val);
 const chipset_ops_t *g_hal = NULL;  /* Set by detect_chipset_hal() */
 
 /*============================================================================
+ * CPU TIER DETECTION
+ *
+ * Detection ladder ordered so each step's opcodes are legal on the CPU that
+ * reaches it:
+ *   1. 8086 vs 286 vs 386+  - 16-bit FLAGS bits 12-15 test (safe on 8086/286)
+ *   2. 386 vs 486           - EFLAGS AC bit (bit 18); only after step 1 = 386+
+ *   3. 486 vs Pentium       - EFLAGS ID bit (bit 21); only after step 2 = 486+
+ * The 32-bit (.386) blocks are guarded by early-return so they are never
+ * EXECUTED on a 286, even though their bytes exist in the image.
+ *============================================================================*/
+
+unsigned char g_cpu_tier = CK_CPU_8086;     /* set by ck_detect_cpu() */
+
+/*
+ * CPU-probe primitives implemented as #pragma aux so the result returns in a
+ * register (no _asm-writes-to-local that the optimizer can't see, and no
+ * 32-bit register names in the parm/value lists, which -0 mode rejects).
+ * The .386 directive only affects the assembled body; only the 16-bit halves
+ * (ax/cx) appear in value/modify. cpu_ac_settable/cpu_id_settable execute
+ * 32-bit opcodes, so they are CALLED only after 386+ is confirmed.
+ */
+
+/* FLAGS bits 12-15 readback after trying to CLEAR them.
+   Returns 0xF000 only on 8086/8088 (bits stuck high). Restores FLAGS. */
+static unsigned int cpu_flags_clear_test(void);
+#pragma aux cpu_flags_clear_test = \
+    "pushf"  "pop ax"  "mov cx, ax" \
+    "and ax, 0FFFh"  "push ax"  "popf" \
+    "pushf"  "pop ax"  "and ax, 0F000h" \
+    "push cx"  "popf" \
+    value [ax] modify [cx];
+
+/* FLAGS bits 12-15 readback after trying to SET them.
+   Returns 0x0000 only on 80286 (bits stuck low). Restores FLAGS. */
+static unsigned int cpu_flags_set_test(void);
+#pragma aux cpu_flags_set_test = \
+    "pushf"  "pop ax"  "mov cx, ax" \
+    "or ax, 0F000h"  "push ax"  "popf" \
+    "pushf"  "pop ax"  "and ax, 0F000h" \
+    "push cx"  "popf" \
+    value [ax] modify [cx];
+
+/* 386 vs 486: returns 1 if the AC flag (EFLAGS bit 18) is settable. (386+ only) */
+static unsigned int cpu_ac_settable(void);
+#pragma aux cpu_ac_settable = \
+    ".386" \
+    "pushfd"  "pop eax"  "mov ecx, eax" \
+    "xor eax, 40000h"  "push eax"  "popfd" \
+    "pushfd"  "pop eax"  "xor eax, ecx" \
+    "shr eax, 18"  "and eax, 1" \
+    "push ecx"  "popfd" \
+    value [ax] modify [cx];
+
+/* 486 vs Pentium: returns 1 if the ID flag (EFLAGS bit 21 -> CPUID) is settable. */
+static unsigned int cpu_id_settable(void);
+#pragma aux cpu_id_settable = \
+    ".386" \
+    "pushfd"  "pop eax"  "mov ecx, eax" \
+    "xor eax, 200000h"  "push eax"  "popfd" \
+    "pushfd"  "pop eax"  "xor eax, ecx" \
+    "shr eax, 21"  "and eax, 1" \
+    "push ecx"  "popfd" \
+    value [ax] modify [cx];
+
+void ck_detect_cpu(void)
+{
+    /* Step 1: 8086 vs 286 vs 386+ (16-bit FLAGS bits 12-15; safe everywhere). */
+    if (cpu_flags_clear_test() == 0xF000) {  /* bits stuck high -> 8086/8088 */
+        g_cpu_tier = CK_CPU_8086;
+        return;
+    }
+    if (cpu_flags_set_test() != 0xF000) {    /* bits stuck low -> 80286 */
+        g_cpu_tier = CK_CPU_286;
+        return;
+    }
+
+    /* 386 or later: 32-bit opcodes are now safe to execute. */
+    g_cpu_tier = CK_CPU_386;
+
+    /* Step 2: 386 vs 486 (AC flag). */
+    if (!cpu_ac_settable())
+        return;                              /* AC not settable -> 80386 */
+    g_cpu_tier = CK_CPU_486;
+
+    /* Step 3: 486 vs Pentium (ID flag / CPUID). */
+    if (cpu_id_settable())
+        g_cpu_tier = CK_CPU_PENTIUM;
+}
+
+/*============================================================================
  * GENERIC HELPER IMPLEMENTATIONS
  *============================================================================*/
 
 /*
- * Cache flush using WBINVD instruction (486+)
- * Writes back all modified cache lines, then invalidates.
- * WBINVD opcode: 0F 09
+ * Tier-aware cache flush. WBINVD (0F 09) and INVD (0F 08) are BOTH 486+
+ * instructions; the 386 has no on-chip cache and no cache-management opcode.
+ * So we issue WBINVD only on 486+, and no-op on 386 and earlier (external/L2
+ * cache flushing on those parts is handled by chipset-specific ops). This
+ * avoids the invalid-opcode (#UD) fault that unconditional WBINVD/INVD causes
+ * on a 386. ck_detect_cpu() must have run first.
  */
-int generic_wbinvd_flush(void)
+int generic_safe_flush(void)
 {
-    _asm {
-        db 0Fh, 09h     /* WBINVD - Write Back and Invalidate Data Cache */
+    if (g_cpu_tier >= CK_CPU_486) {
+        _asm {
+            db 0Fh, 09h     /* WBINVD - Write Back and Invalidate Data Cache */
+        }
     }
+    /* 386 and earlier: no CPU cache instruction exists - safe no-op. */
     return HAL_OK;
 }
 
 /*
- * Cache flush using INVD instruction (386, no writeback)
- * WARNING: This invalidates WITHOUT writing back - data loss possible!
- * Only use on write-through caches or when cache is known clean.
- * INVD opcode: 0F 08
+ * Cache flush using WBINVD instruction (486+).
+ * Now routed through generic_safe_flush() so it is CPU-tier safe; retained
+ * as a named entry point for the many ops structs that reference it.
+ */
+int generic_wbinvd_flush(void)
+{
+    return generic_safe_flush();
+}
+
+/*
+ * Cache flush formerly using bare INVD (which is 486+, not 386, and discards
+ * without writeback). Now routed through generic_safe_flush(): WBINVD on 486+,
+ * no-op below. This is strictly safer (no data loss, no #UD).
  */
 int generic_invd_flush(void)
 {
-    _asm {
-        db 0Fh, 08h     /* INVD - Invalidate Data Cache (no writeback) */
-    }
-    return HAL_OK;
+    return generic_safe_flush();
 }
 
 /*
@@ -180,10 +282,10 @@ const chipset_ops_t ops_unknown = {
     /* Detection */
     .probe = unknown_probe,
 
-    /* Cache (assume enabled, use WBINVD for flush) */
+    /* Cache (assume enabled, use CPU-tier-safe flush) */
     .cache_get = unknown_cache_get,
     .cache_set = hal_stub_unsupported_i,
-    .cache_flush = generic_wbinvd_flush,
+    .cache_flush = generic_safe_flush,
     .is_writeback = 0,
 
     /* NC regions (none) */

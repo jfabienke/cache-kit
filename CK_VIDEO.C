@@ -260,8 +260,14 @@ void video_cursor_show(void)
 
 void video_cursor_move(int x, int y)
 {
-    unsigned char col = (unsigned char)x;
-    unsigned char row = (unsigned char)y;
+    unsigned char col, row;
+
+    /* Clamp to the screen so a negative or oversized coordinate can't wrap
+       when cast to unsigned char (placing the BIOS cursor at a junk cell). */
+    if (x < 0) x = 0; else if (x > SCREEN_WIDTH - 1)  x = SCREEN_WIDTH - 1;
+    if (y < 0) y = 0; else if (y > SCREEN_HEIGHT - 1) y = SCREEN_HEIGHT - 1;
+    col = (unsigned char)x;
+    row = (unsigned char)y;
 
     /* INT 10h AH=02h: Set cursor position
      * BH = page number (0)

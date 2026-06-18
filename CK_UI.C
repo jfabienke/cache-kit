@@ -499,6 +499,12 @@ int ui_menu_show(menu_t *menu)
     int key;
     unsigned char attr;
 
+    /* Guard against an empty menu: the navigation code does
+       `% menu->count`, which is a divide-by-zero (INT 0 -> crash) when
+       count == 0. Return the "cancelled" sentinel instead. */
+    if (menu == NULL || menu->count <= 0)
+        return -1;
+
     h = menu->count + 2;
     x = menu->x;
     y = menu->y;
@@ -534,15 +540,26 @@ int ui_menu_show(menu_t *menu)
         key = video_getkey();
         switch (key) {
             case KEY_UP:
-                do {
-                    menu->selected = (menu->selected + menu->count - 1) % menu->count;
-                } while (!menu->items[menu->selected].enabled && menu->count > 1);
+                {
+                    /* Stop after a full cycle so an all-disabled menu can't
+                       loop forever (the old `count > 1` guard never broke). */
+                    int start = menu->selected;
+                    do {
+                        menu->selected =
+                            (menu->selected + menu->count - 1) % menu->count;
+                    } while (!menu->items[menu->selected].enabled &&
+                             menu->selected != start);
+                }
                 break;
 
             case KEY_DOWN:
-                do {
-                    menu->selected = (menu->selected + 1) % menu->count;
-                } while (!menu->items[menu->selected].enabled && menu->count > 1);
+                {
+                    int start = menu->selected;
+                    do {
+                        menu->selected = (menu->selected + 1) % menu->count;
+                    } while (!menu->items[menu->selected].enabled &&
+                             menu->selected != start);
+                }
                 break;
 
             case KEY_ENTER:
@@ -619,8 +636,13 @@ void ui_draw_table_row(int x, int y, table_col_t *cols, int ncols,
 {
     int i, cx = x;
 
+    if (cols == NULL || values == NULL)
+        return;
+
     for (i = 0; i < ncols && i < TABLE_MAX_COLS; i++) {
-        int len = strlen(values[i]);
+        /* Guard against a NULL cell: strlen(NULL) would fault. */
+        const char *val = values[i] ? values[i] : "";
+        int len = strlen(val);
         int pad = cols[i].width - len;
         int left_pad = 0, right_pad = 0;
 
@@ -633,7 +655,7 @@ void ui_draw_table_row(int x, int y, table_col_t *cols, int ncols,
         }
 
         video_hline(cx, y, left_pad, ' ', attr);
-        video_putsn(cx + left_pad, y, values[i], cols[i].width - left_pad, attr);
+        video_putsn(cx + left_pad, y, val, cols[i].width - left_pad, attr);
         video_hline(cx + left_pad + len, y, right_pad, ' ', attr);
 
         cx += cols[i].width + 1;

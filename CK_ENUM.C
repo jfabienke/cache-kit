@@ -771,6 +771,7 @@ static int isapnp_isolate(void)
 {
     int csn = 0;
     int bit, byte_idx;
+    int fail_count = 0;     /* consecutive checksum failures (EN-M1 guard) */
     unsigned char serial[9];
     unsigned char checksum;
     unsigned char b1, b2;
@@ -785,7 +786,7 @@ static int isapnp_isolate(void)
     isapnp_write(ISAPNP_SET_RD_PORT, g_isapnp_read_port >> 2);
     isapnp_delay();
 
-    while (csn < 32) {
+    while (csn < 32 && fail_count < 64) {
         isapnp_write(ISAPNP_SERIAL_ISOL, 0x00);
         isapnp_delay();
 
@@ -795,27 +796,43 @@ static int isapnp_isolate(void)
             serial[byte_idx] = 0;
 
             for (bit = 0; bit < 8; bit++) {
+                unsigned char data_bit;
+
                 b1 = inp(g_isapnp_read_port);
                 isapnp_delay();
                 b2 = inp(g_isapnp_read_port);
                 isapnp_delay();
 
                 if (b1 == 0x55 && b2 == 0xAA) {
+                    data_bit = 1;
                     serial[byte_idx] |= (1 << bit);
-                    if (byte_idx < 8) {
-                        checksum = (checksum >> 1) |
-                                   (((checksum ^ (checksum >> 1) ^ 1) & 1) << 7);
-                    }
                 } else if (b1 == 0xFF && b2 == 0xFF) {
-                    goto isolation_done;
+                    goto isolation_done;        /* no card driving the bus */
+                } else {
+                    data_bit = 0;               /* '0' bit (or noise -> 0) */
+                }
+
+                /* Advance the checksum LFSR for EVERY serial-ID bit (bytes
+                 * 0-7), feeding the ACTUAL data bit. The previous code only
+                 * updated it on '1' bits and hardcoded the bit as 1, so the
+                 * computed checksum never matched serial[8] for any card with
+                 * a '0' in its ID (i.e. essentially all of them) and no CSN
+                 * was ever assigned. Byte 8 is the checksum itself (not fed).
+                 * LFSR: new_msb = LFSR[0] ^ LFSR[1] ^ data_bit; shift right. */
+                if (byte_idx < 8) {
+                    unsigned char fb;
+                    fb = (unsigned char)((checksum ^ (checksum >> 1) ^ data_bit) & 1);
+                    checksum = (unsigned char)((checksum >> 1) | (fb << 7));
                 }
             }
         }
 
         if (serial[8] != checksum) {
+            fail_count++;       /* bounded so a noisy bus can't spin forever */
             continue;
         }
 
+        fail_count = 0;         /* reset on a good read */
         csn++;
         isapnp_write(ISAPNP_CSN, csn);
         isapnp_delay();
@@ -831,7 +848,7 @@ isolation_done:
 static void isapnp_read_resources(int csn, unsigned char *irq, unsigned int *io_base)
 {
     unsigned char tag;
-    unsigned char len;
+    unsigned int len;       /* 16-bit: large-resource length is 2 bytes */
     int found_irq = 0, found_io = 0;
     int timeout = 256;
     int i;
@@ -1007,22 +1024,16 @@ static int acpi_checksum_valid(unsigned char far *table, unsigned int len)
 static unsigned char far *find_rsdp(void)
 {
     unsigned char far *ptr;
-    unsigned long sig_lo, sig_hi;
 
-    /* Search BIOS area on 16-byte boundaries */
-    for (ptr = (unsigned char far *)MK_FP(0xE000, 0x0000);
-         ptr < (unsigned char far *)MK_FP(0xFFFF, 0x0010);
-         ptr += 16) {
-
-        sig_lo = *(unsigned long far *)ptr;
-        sig_hi = *(unsigned long far *)(ptr + 4);
-
-        if (sig_lo == RSDP_SIG_LO && sig_hi == RSDP_SIG_HI) {
-            /* Found "RSD PTR " - verify checksum (first 20 bytes for ACPI 1.0) */
-            if (acpi_checksum_valid(ptr, 20)) {
-                return ptr;
-            }
-        }
+    /* Scan the BIOS area (E0000-FFFFF) on 16-byte boundaries via the
+       segment-wise helper. The old loop advanced a far pointer's 16-bit
+       offset (`ptr += 16`) and compared against an end far pointer; once the
+       offset wrapped 0xFFF0->0x0000 within segment 0xE000 the segment never
+       advanced, so it scanned the same 64KB window FOREVER when no RSDP was
+       present in that segment. io_find_sig walks segment by segment. */
+    ptr = io_find_sig(0xE000, 0xFFFF, "RSD PTR ", 8);
+    if (ptr != 0 && acpi_checksum_valid(ptr, 20)) {
+        return ptr;             /* signature + valid ACPI 1.0 checksum */
     }
 
     return (unsigned char far *)0;

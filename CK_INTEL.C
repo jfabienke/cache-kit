@@ -165,12 +165,13 @@ static int triton_shadow_get_pam(int pam_reg, int nibble)
 static int triton_shadow_get(int region)
 {
     switch (region) {
-        case 0: return triton_shadow_get_pam(TRITON_PAM1_REG, 0);  /* C000-C7FF */
-        case 1: return triton_shadow_get_pam(TRITON_PAM2_REG, 0);  /* C800-CFFF */
-        case 2: return triton_shadow_get_pam(TRITON_PAM3_REG, 0);  /* D000-D7FF */
-        case 3: return triton_shadow_get_pam(TRITON_PAM4_REG, 0);  /* D800-DFFF */
-        case 4: return triton_shadow_get_pam(TRITON_PAM5_REG, 0);  /* E000-EFFF */
-        case 5: return triton_shadow_get_pam(TRITON_PAM0_REG, 0);  /* F000-FFFF */
+        case 0: return triton_shadow_get_pam(TRITON_PAM1_REG, 0);  /* C0000-C7FFF */
+        case 1: return triton_shadow_get_pam(TRITON_PAM2_REG, 0);  /* C8000-CFFFF */
+        case 2: return triton_shadow_get_pam(TRITON_PAM3_REG, 0);  /* D0000-D7FFF */
+        case 3: return triton_shadow_get_pam(TRITON_PAM4_REG, 0);  /* D8000-DFFFF */
+        case 4: return triton_shadow_get_pam(TRITON_PAM5_REG, 0);  /* E0000-E7FFF */
+        case 5: return triton_shadow_get_pam(TRITON_PAM6_REG, 0);  /* E8000-EFFFF */
+        case 6: return triton_shadow_get_pam(TRITON_PAM0_REG, 0);  /* F0000-FFFFF */
         default: return HAL_ERR_PARAM;
     }
 }
@@ -193,14 +194,17 @@ static int triton_shadow_set(int region, int mode)
         default: return HAL_ERR_PARAM;
     }
 
-    /* Map region to PAM register */
+    /* Map region to PAM register. Region 5 (PAM6, E8000-EFFFF) was previously
+       orphaned - the old map jumped from PAM5 straight to PAM0, so the upper
+       half of the E segment could not be shadowed/cached at all (IS-H2). */
     switch (region) {
-        case 0: pam_reg = TRITON_PAM1_REG; break;  /* C000 */
-        case 1: pam_reg = TRITON_PAM2_REG; break;  /* C800 */
-        case 2: pam_reg = TRITON_PAM3_REG; break;  /* D000 */
-        case 3: pam_reg = TRITON_PAM4_REG; break;  /* D800 */
-        case 4: pam_reg = TRITON_PAM5_REG; break;  /* E000 */
-        case 5: pam_reg = TRITON_PAM0_REG; break;  /* F000 */
+        case 0: pam_reg = TRITON_PAM1_REG; break;  /* C0000-C7FFF */
+        case 1: pam_reg = TRITON_PAM2_REG; break;  /* C8000-CFFFF */
+        case 2: pam_reg = TRITON_PAM3_REG; break;  /* D0000-D7FFF */
+        case 3: pam_reg = TRITON_PAM4_REG; break;  /* D8000-DFFFF */
+        case 4: pam_reg = TRITON_PAM5_REG; break;  /* E0000-E7FFF */
+        case 5: pam_reg = TRITON_PAM6_REG; break;  /* E8000-EFFFF */
+        case 6: pam_reg = TRITON_PAM0_REG; break;  /* F0000-FFFFF */
         default: return HAL_ERR_PARAM;
     }
 
@@ -282,7 +286,7 @@ const chipset_ops_t ops_intel_430fx = {
     .nc_clear = hal_stub_unsupported_i,
 
     /* Shadow RAM (6 regions via PAM) */
-    .shadow_regions = 6,
+    .shadow_regions = 7,    /* C/D/E (incl. E8000 via PAM6) + F segments */
     .shadow_get = triton_shadow_get,
     .shadow_set = triton_shadow_set,
 
@@ -341,7 +345,7 @@ const chipset_ops_t ops_intel_430hx = {
     .nc_clear = hal_stub_unsupported_i,
 
     /* Shadow RAM */
-    .shadow_regions = 6,
+    .shadow_regions = 7,    /* C/D/E (incl. E8000 via PAM6) + F segments */
     .shadow_get = triton_shadow_get,
     .shadow_set = triton_shadow_set,
 
@@ -400,7 +404,7 @@ const chipset_ops_t ops_intel_430vx = {
     .nc_clear = hal_stub_unsupported_i,
 
     /* Shadow RAM */
-    .shadow_regions = 6,
+    .shadow_regions = 7,    /* C/D/E (incl. E8000 via PAM6) + F segments */
     .shadow_get = triton_shadow_get,
     .shadow_set = triton_shadow_set,
 
@@ -459,7 +463,7 @@ const chipset_ops_t ops_intel_430tx = {
     .nc_clear = hal_stub_unsupported_i,
 
     /* Shadow RAM */
-    .shadow_regions = 6,
+    .shadow_regions = 7,    /* C/D/E (incl. E8000 via PAM6) + F segments */
     .shadow_get = triton_shadow_get,
     .shadow_set = triton_shadow_set,
 
@@ -518,7 +522,7 @@ const chipset_ops_t ops_intel_430mx = {
     .nc_clear = hal_stub_unsupported_i,
 
     /* Shadow RAM */
-    .shadow_regions = 6,
+    .shadow_regions = 7,    /* C/D/E (incl. E8000 via PAM6) + F segments */
     .shadow_get = triton_shadow_get,
     .shadow_set = triton_shadow_set,
 
@@ -671,7 +675,7 @@ const chipset_ops_t ops_intel_420zx = {
     .nc_clear = hal_stub_unsupported_i,
 
     /* Shadow RAM */
-    .shadow_regions = 6,
+    .shadow_regions = 7,    /* C/D/E (incl. E8000 via PAM6) + F segments */
     .shadow_get = triton_shadow_get,
     .shadow_set = triton_shadow_set,
 
@@ -735,7 +739,7 @@ const chipset_ops_t ops_intel_430nx = {
     .nc_clear = hal_stub_unsupported_i,
 
     /* Shadow RAM */
-    .shadow_regions = 6,
+    .shadow_regions = 7,    /* C/D/E (incl. E8000 via PAM6) + F segments */
     .shadow_get = triton_shadow_get,
     .shadow_set = triton_shadow_set,
 
@@ -798,7 +802,7 @@ const chipset_ops_t ops_intel_440fx = {
     .nc_clear = hal_stub_unsupported_i,
 
     /* Shadow RAM */
-    .shadow_regions = 6,
+    .shadow_regions = 7,    /* C/D/E (incl. E8000 via PAM6) + F segments */
     .shadow_get = triton_shadow_get,
     .shadow_set = triton_shadow_set,
 
@@ -861,7 +865,7 @@ const chipset_ops_t ops_intel_450gx = {
     .nc_clear = hal_stub_unsupported_i,
 
     /* Shadow RAM */
-    .shadow_regions = 6,
+    .shadow_regions = 7,    /* C/D/E (incl. E8000 via PAM6) + F segments */
     .shadow_get = triton_shadow_get,
     .shadow_set = triton_shadow_set,
 

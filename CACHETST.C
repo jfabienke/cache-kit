@@ -16,6 +16,7 @@
 #include <conio.h>
 #include <i86.h>
 #include <dos.h>
+#include "CK_PARSE.H"   /* cpu_is_386_plus (286-safe CPU gate) */
 
 /*============================================================================
  * CHIPSET TYPE DEFINITIONS
@@ -110,13 +111,23 @@ static int check_eisa(void)
  */
 static int is_486_or_better(void)
 {
-    unsigned int cpu_type = 3;  /* Default to 386 */
+    unsigned int cpu_type = 0;  /* assume not-486 until proven */
 
     /*
-     * Try to toggle the AC flag (bit 18) in EFLAGS
-     * 386 doesn't have this flag, 486+ does
+     * The AC-flag test below uses 386-only opcodes (pushfd, 32-bit regs).
+     * Gate on a 286-safe check first so we never EXECUTE them on a 286/8086
+     * (which would fault). The .386 directive lets the block ASSEMBLE under
+     * the -0 (8086) build; it does not change the surrounding code generation.
+     */
+    if (!cpu_is_386_plus())
+        return 0;               /* 8086/286 -> definitely not 486+ */
+
+    /*
+     * Try to toggle the AC flag (bit 18) in EFLAGS.
+     * 386 doesn't allow this, 486+ does.
      */
     _asm {
+        .386
         pushfd
         pop eax
         mov ecx, eax
@@ -364,19 +375,37 @@ static void enable_cache(chipset_info_t *info, unsigned char prev_state)
  */
 static void flush_cache_read_loop(unsigned int cache_kb)
 {
-    unsigned char far *ptr;
+    volatile unsigned char huge *ptr;   /* huge: indexing normalizes the segment */
     unsigned long i;
-    unsigned long bytes = (unsigned long)cache_kb * 1024UL * 2UL;
-    volatile unsigned char dummy;
+    unsigned long bytes;
+    volatile unsigned char dummy = 0;
+
+    if (cache_kb == 0)
+        return;
 
     /*
-     * Read from low memory (below 640K) to flush cache lines.
-     * We use the area starting at 0x10000 (64KB) which should be
-     * safely above the interrupt vectors and BIOS data area.
+     * Cap the walk so 2x the cache size stays within conventional RAM
+     * (0x10000..0x90000 = 64KB..576KB). For larger L2 caches we still walk
+     * the full 512KB window, which evicts effectively, without reading into
+     * VGA/ROM/device space above 0xA0000.
      */
-    ptr = (unsigned char far *)0x00010000L;
+    if (cache_kb > 256)
+        cache_kb = 256;
+    bytes = (unsigned long)cache_kb * 1024UL * 2UL;   /* <= 512KB */
 
-    _disable();
+    /*
+     * Walk a region twice the cache size starting at physical 0x10000 (64KB),
+     * above the IVT/BIOS data area. A HUGE pointer normalizes segment:offset
+     * on each access, so the walk actually crosses 64KB boundaries; a plain
+     * far pointer only varies the 16-bit offset and would alias within a
+     * single 64KB window, making the flush ineffective for caches > 32KB.
+     *
+     * No _disable()/_enable() around the loop: a read loop does not need
+     * interrupts off, and holding them off for tens of thousands of
+     * iterations drops timer ticks (clock drift, missed IRQs). The volatile
+     * pointer keeps the optimizer from eliding the reads.
+     */
+    ptr = (volatile unsigned char huge *)0x00010000L;
 
     for (i = 0; i < bytes; i += 16) {
         dummy = ptr[i];
@@ -384,8 +413,6 @@ static void flush_cache_read_loop(unsigned int cache_kb)
         dummy = ptr[i + 8];
         dummy = ptr[i + 12];
     }
-
-    _enable();
 
     (void)dummy;  /* Suppress unused warning */
 }
@@ -395,7 +422,10 @@ static void flush_cache_read_loop(unsigned int cache_kb)
  */
 static void flush_cache_wbinvd(void)
 {
+    /* WBINVD is a 486+ opcode; the .486 directive lets it assemble under the
+       -0 build. Only ever called when is_486_or_better() returned true. */
     _asm {
+        .486
         wbinvd
     }
 }
@@ -448,6 +478,22 @@ static void flush_cache(chipset_info_t *info, int is_486)
     flush_cache_read_loop(info->cache_size_kb);
 }
 
+/*
+ * Flush the cache WITHOUT any console output, for the timed measurement path.
+ * (flush_cache() prints status, and printf inside the PIT-latched window would
+ * dominate the measurement - CL-H3.)
+ */
+static void flush_cache_quiet(chipset_info_t *info, int is_486)
+{
+    if (info->type == CHIPSET_MIC9391) {
+        flush_cache_mic_hw(info);
+    } else if (is_486) {
+        flush_cache_wbinvd();
+    } else {
+        flush_cache_read_loop(info->cache_size_kb);
+    }
+}
+
 /*============================================================================
  * TIMING FUNCTIONS (8254 PIT)
  *============================================================================*/
@@ -479,10 +525,14 @@ static unsigned long measure_flush_time(chipset_info_t *info, int is_486)
     unsigned long us;
 
     start = read_pit_count();
-    flush_cache(info, is_486);
+    flush_cache_quiet(info, is_486);    /* no printf inside the timed window */
     end = read_pit_count();
 
-    /* Handle counter wraparound */
+    /* PIT counter 0 counts DOWN, so normally start > end. If it wrapped past
+       0 and reloaded (65536), end > start: elapsed = start + (65536 - end).
+       Note: a flush longer than one full PIT period (~54.9 ms) would wrap more
+       than once and is not distinguishable here; the bounded read-loop flush
+       stays well under that. */
     if (end > start) {
         ticks = start + (65536UL - end);
     } else {

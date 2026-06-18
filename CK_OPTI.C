@@ -142,8 +142,20 @@ static int opti_cache_set(int enable)
  *   Byte 1: Bits 7:4 = size code, Bits 3:0 = Base A27:A24
  *
  * Size: 8KB << (size_code - 1), where 0 = disabled
- * Base: ((hi_nibble << 12) | (lo_byte << 4)) KB
+ * Base: lo byte = A23:A16, size-reg hi nibble = A27:A24
  */
+
+/*
+ * OPTi NC base unit. Per CLAUDE.md / the OPTi datasheet the base field is
+ * A23:A16 = 64KB units, i.e. base_kb >> 6 (and the A27:A24 nibble is
+ * base_kb >> 14). The original code used >>4 / >>12 (16KB units), which scales
+ * the base 4x too small. Centralized here so it is one line to flip.
+ * !!! TODO: VERIFY on 86Box/PCem against the OPTi 82C391/82C596 datasheet
+ * !!! before trusting on real hardware (Eteq uses the same encoding).
+ */
+#define OPTI_NC_BASE_SHIFT  6           /* 64KB units (A16) */
+#define OPTI_NC_BASE_MAXU   0xFFFUL     /* 12-bit base field (A27:A16) */
+
 static int opti_nc_read(int idx, nc_region_t *r, int max_regions)
 {
     unsigned char base_reg, size_reg;
@@ -167,13 +179,15 @@ static int opti_nc_read(int idx, nc_region_t *r, int max_regions)
         unsigned char hi = opti_read_reg(size_reg);
 
         size_code = hi >> 4;
-
+        if (size_code > 7)              /* codes 8-15 are reserved (OA-C3) */
+            size_code = 7;              /* clamp so a junk reg can't report */
+                                        /* a bogus multi-MB region */
         if (size_code != 0) {
             r->active = 1;
-            /* Base: high nibble is A27:A24, lo byte is A23:A16 */
-            /* Convert to KB: ((hi & 0x0F) << 12) | (lo << 4) */
-            r->base_kb = ((unsigned long)(hi & 0x0F) << 12) |
-                         ((unsigned long)lo << 4);
+            /* Base: A27:A24 in hi nibble, A23:A16 in lo byte. */
+            r->base_kb =
+                ((unsigned long)(hi & 0x0F) << (OPTI_NC_BASE_SHIFT + 8)) |
+                ((unsigned long)lo << OPTI_NC_BASE_SHIFT);
             /* Size: 8KB << (code - 1) */
             r->size_kb = 8UL << (size_code - 1);
         }
@@ -195,40 +209,39 @@ static int opti_nc_write(int idx, unsigned long base_kb, unsigned long size_kb, 
         return HAL_ERR_PARAM;
     }
 
-    /* Validate base alignment (8KB minimum) */
-    if (base_kb % 8 != 0) {
-        return HAL_ERR_PARAM;
-    }
-
-    /* Calculate size code: find smallest power of 2 >= size_kb starting at 8KB */
-    if (size_kb == 0) {
-        size_code = 0;  /* Disable region */
-    } else if (size_kb <= 8) {
-        size_code = 1;
-    } else if (size_kb <= 16) {
-        size_code = 2;
-    } else if (size_kb <= 32) {
-        size_code = 3;
-    } else if (size_kb <= 64) {
-        size_code = 4;
-    } else if (size_kb <= 128) {
-        size_code = 5;
-    } else if (size_kb <= 256) {
-        size_code = 6;
-    } else {
-        size_code = 7;  /* 512KB max per region */
-    }
-
     /* Calculate register addresses */
     base_reg_addr = OPTI_REG_NC0_BASE + (idx * 2);
     size_reg_addr = OPTI_REG_NC0_SIZE + (idx * 2);
 
-    /* Encode base address:
-     * lo byte = (base_kb >> 4) & 0xFF = A23:A16
-     * hi nibble of size reg = (base_kb >> 12) & 0x0F = A27:A24
-     */
-    base_val = (unsigned char)((base_kb >> 4) & 0xFF);
-    size_val = (size_code << 4) | ((unsigned char)((base_kb >> 12) & 0x0F));
+    /* size 0 = disable (size code 0) */
+    if (size_kb == 0) {
+        opti_write_reg(size_reg_addr, 0x00);
+        return HAL_OK;
+    }
+
+    /* Align base to the 64KB base unit and REJECT (don't truncate) a base
+       that overflows the 12-bit base field - a truncated base would fence the
+       wrong physical address (OA-H1). */
+    base_kb = (base_kb + 63) & ~63UL;
+    if ((base_kb >> OPTI_NC_BASE_SHIFT) > OPTI_NC_BASE_MAXU) {
+        return HAL_ERR_PARAM;
+    }
+
+    /* Size code: code N => 8KB << (N-1), capped at code 7 = 512KB/region.
+       Reject larger rather than silently using 512KB. */
+    if (size_kb <= 8) size_code = 1;
+    else if (size_kb <= 16) size_code = 2;
+    else if (size_kb <= 32) size_code = 3;
+    else if (size_kb <= 64) size_code = 4;
+    else if (size_kb <= 128) size_code = 5;
+    else if (size_kb <= 256) size_code = 6;
+    else if (size_kb <= 512) size_code = 7;
+    else return HAL_ERR_PARAM;
+
+    /* Encode base: lo byte = A23:A16, size-reg hi nibble = A27:A24. */
+    base_val = (unsigned char)((base_kb >> OPTI_NC_BASE_SHIFT) & 0xFF);
+    size_val = (unsigned char)((size_code << 4) |
+               ((base_kb >> (OPTI_NC_BASE_SHIFT + 8)) & 0x0F));
 
     /* Write to registers */
     opti_write_reg(base_reg_addr, base_val);
