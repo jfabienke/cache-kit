@@ -690,6 +690,15 @@ typedef void (*feat_read_fn_t)(void);
 typedef void (*feat_write_fn_t)(int, unsigned long, unsigned long);
 typedef void (*feat_clear_fn_t)(int);
 
+/* Forward declarations for TUI/cache helpers used before their definitions
+   (otherwise C89 implicitly declares them as int(), which is wrong for the
+   void-returning ones - CK-L1 / clears W131). */
+static int  is_cache_enabled(void);
+static void enable_cache(void);
+static int  safe_disable_cache(void);
+static int  get_key(void);
+static void draw_screen(void);
+
 /* Unified feature descriptor - per-chipset, per-feature access specification */
 typedef struct {
     /* Identification */

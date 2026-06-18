@@ -9,6 +9,8 @@
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdlib.h>    /* strtoul - without this it implicitly returns int,
+                          truncating the parsed number/hex value */
 #include <string.h>
 #include <ctype.h>
 #include "CK_UI.H"
@@ -63,14 +65,6 @@ static void draw_msg_lines(int x, int y, const char *msg, unsigned char attr)
     if (i > 0) {
         video_puts(x, row, line, attr);
     }
-}
-
-/* Save screen region to buffer */
-static void save_region(int x, int y, int w, int h, unsigned int *buf)
-{
-    /* Note: This would require direct video memory access
-     * For simplicity, dialogs just overdraw and caller redraws screen */
-    (void)x; (void)y; (void)w; (void)h; (void)buf;
 }
 
 /*============================================================================
