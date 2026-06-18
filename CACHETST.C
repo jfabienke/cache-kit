@@ -478,6 +478,22 @@ static void flush_cache(chipset_info_t *info, int is_486)
     flush_cache_read_loop(info->cache_size_kb);
 }
 
+/*
+ * Flush the cache WITHOUT any console output, for the timed measurement path.
+ * (flush_cache() prints status, and printf inside the PIT-latched window would
+ * dominate the measurement - CL-H3.)
+ */
+static void flush_cache_quiet(chipset_info_t *info, int is_486)
+{
+    if (info->type == CHIPSET_MIC9391) {
+        flush_cache_mic_hw(info);
+    } else if (is_486) {
+        flush_cache_wbinvd();
+    } else {
+        flush_cache_read_loop(info->cache_size_kb);
+    }
+}
+
 /*============================================================================
  * TIMING FUNCTIONS (8254 PIT)
  *============================================================================*/
@@ -509,10 +525,14 @@ static unsigned long measure_flush_time(chipset_info_t *info, int is_486)
     unsigned long us;
 
     start = read_pit_count();
-    flush_cache(info, is_486);
+    flush_cache_quiet(info, is_486);    /* no printf inside the timed window */
     end = read_pit_count();
 
-    /* Handle counter wraparound */
+    /* PIT counter 0 counts DOWN, so normally start > end. If it wrapped past
+       0 and reloaded (65536), end > start: elapsed = start + (65536 - end).
+       Note: a flush longer than one full PIT period (~54.9 ms) would wrap more
+       than once and is not distinguishable here; the bounded read-loop flush
+       stays well under that. */
     if (end > start) {
         ticks = start + (65536UL - end);
     } else {

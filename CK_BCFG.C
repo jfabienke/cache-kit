@@ -2762,6 +2762,15 @@ static int eisa_save_slot_nvm(slot_config_t *cfg)
                 eisa_nvm_write(func_offset + 12, cfg->ioports[0].base & 0xFF);
                 eisa_nvm_write(func_offset + 13, (cfg->ioports[0].base >> 8) & 0xFF);
             }
+        } else {
+            /* This config model carries one function's resources, so mark
+               functions 1-3 explicitly unused (0xFF) instead of leaving stale
+               NVM bytes - the checksum is computed over the whole 64-byte slot
+               block, so stale bytes made it non-reproducible (BC-H5). */
+            int b;
+            for (b = 0; b < 14; b++) {
+                eisa_nvm_write(func_offset + b, 0xFF);
+            }
         }
     }
 
