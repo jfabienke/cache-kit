@@ -88,8 +88,8 @@ typedef struct chipset_ops {
     int (*a20_set)(int enable);                 /* Enable/disable A20 line */
 
     /*--- Raw Register Access (for F4 Registers screen) ---*/
-    unsigned char reg_count;                    /* Number of config registers */
-    unsigned char reg_base;                     /* First register index */
+    unsigned int reg_count;                     /* Number of config registers (e.g. 256 for PCI) */
+    unsigned int reg_base;                      /* First register index (e.g. 0x100 for MCA POS) */
     int (*reg_read)(int reg);                   /* Read register, -1 if invalid */
     int (*reg_write)(int reg, int val);         /* Write register */
 
