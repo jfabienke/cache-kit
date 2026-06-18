@@ -102,24 +102,25 @@ static int via_vt82c495_probe(void)
 {
     unsigned char val1, val2;
 
-    /* Venus uses 0xA8/0xA9 ports */
-    /* Read two different registers and check for non-FF response */
+    /* Venus (VT82C495) is a 486 VLB/EISA chipset that predates PCI. If a PCI
+       bus is present this cannot be a Venus - this gate removes the bulk of
+       the old "accept any responsive 0xA8/0xA9" false positives. */
+    if (pci_bus_present())
+        return 0;
+
+    /* Read index 0x00 twice and require a stable, non-0xFF response
+       (floating/unmapped 0xA8/0xA9 reads 0xFF or varies between reads). */
     outp(VIA_VENUS_INDEX, 0x00);
     val1 = inp(VIA_VENUS_DATA);
-
-    outp(VIA_VENUS_INDEX, 0x01);
     val2 = inp(VIA_VENUS_DATA);
 
-    /* If both are 0xFF, port is probably not connected */
-    if (val1 == 0xFF && val2 == 0xFF) {
+    if (val1 != val2 || val1 == 0xFF) {
         return 0;
     }
 
-    /* Additional check: VIA signature pattern */
-    /* VT82C49x typically has identifiable patterns at certain registers */
-    /* For safety, we'll accept any responsive 0xA8/0xA9 as potential Venus */
-    /* unless a more specific chipset is detected first */
-
+    /* TODO: add a positive VT82C49x register signature when datasheet values
+       are confirmed; this probe stays near the end of the registry so a more
+       specific chipset wins first. */
     return 1;
 }
 

@@ -192,12 +192,19 @@ int pci_bus_present(void)
 {
     unsigned long id;
 
-    /* Try to read device 0:0.0 vendor/device ID */
+    /* Validate PCI config mechanism #1 by writing the enable-bit address to
+       0xCF8 and reading it back: a real host bridge returns it (low 2 bits
+       read as 0); a machine with no mechanism #1 does not. This avoids
+       trusting floating-bus garbage from 0xCFC on a pure-ISA system. */
     io_write_dword(PCI_CONFIG_ADDRESS, PCI_ENABLE_BIT);
+    if ((io_read_dword(PCI_CONFIG_ADDRESS) & 0x80000000UL) != 0x80000000UL) {
+        return 0;
+    }
+
+    /* Now read device 0:0.0 vendor/device ID. */
     id = io_read_dword(PCI_CONFIG_DATA);
 
-    /* 0xFFFFFFFF means no device (or no PCI bus) */
-    /* 0x00000000 is also invalid */
+    /* 0xFFFFFFFF (no device) or 0x00000000 are invalid */
     if (id == 0xFFFFFFFFUL || id == 0x00000000UL) {
         return 0;
     }
@@ -236,7 +243,7 @@ int check_mca(void)
     union REGS regs;
     struct SREGS sregs;
     unsigned char far *config_table;
-    unsigned char feature_byte1;
+    unsigned int tbl_len;
 
     regs.h.ah = 0xC0;
     int86x(0x15, &regs, &regs, &sregs);
@@ -245,14 +252,22 @@ int check_mca(void)
     if (regs.x.cflag)
         return 0;
 
-    /* Get pointer to configuration table in ROM */
+    /* Some clone BIOSes clear carry but leave ES:BX pointing at garbage (or
+       0000:0000, the IVT). Reject a null pointer before dereferencing it -
+       this probe runs FIRST in detection, so a false positive would hijack it. */
+    if (sregs.es == 0 && regs.x.bx == 0)
+        return 0;
+
     config_table = (unsigned char far *)MK_FP(sregs.es, regs.x.bx);
 
-    /* Feature byte 1 is at offset 05h */
-    feature_byte1 = config_table[5];
+    /* The table starts with a 16-bit length; it must be large enough to
+       contain feature byte 1 at offset 5. */
+    tbl_len = config_table[0] | ((unsigned int)config_table[1] << 8);
+    if (tbl_len < 6)
+        return 0;
 
-    /* Bit 1 = MCA (Micro Channel Architecture) bus present */
-    return (feature_byte1 & 0x02) ? 1 : 0;
+    /* Feature byte 1 (offset 05h), bit 1 = MCA bus present */
+    return (config_table[5] & 0x02) ? 1 : 0;
 }
 
 /*
@@ -384,17 +399,20 @@ int legacy_port_valid(unsigned int index_port, unsigned int data_port)
 {
     unsigned char val1, val2;
 
-    /* Read register 0x00 and 0xFF, see if we get different values */
+    /* Select a benign index (0x00, typically a read-only ID/config register)
+       and read the data port twice. A responsive chipset returns a stable
+       value; a floating/unmapped bus returns 0xFF or inconsistent reads.
+       We deliberately write only index 0x00 (the old code also blasted 0xFF
+       as an index), to avoid disturbing a device that may own these ports
+       (e.g. LPT2 or a sound card on 0x22-0x24). */
     io_write_byte(index_port, 0x00);
     val1 = io_read_byte(data_port);
-
-    io_write_byte(index_port, 0xFF);
     val2 = io_read_byte(data_port);
 
-    /* If both return 0xFF, port is probably not connected */
-    if (val1 == 0xFF && val2 == 0xFF) {
+    if (val1 != val2)       /* inconsistent reads -> floating bus */
         return 0;
-    }
+    if (val1 == 0xFF)       /* steady 0xFF -> almost certainly unmapped */
+        return 0;
 
     return 1;
 }
