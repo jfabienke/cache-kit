@@ -127,11 +127,12 @@ void video_printf(int x, int y, unsigned char attr, const char *fmt, ...)
     char buf[SCREEN_WIDTH + 1];
     va_list args;
 
+    /* _vbprintf is bounded and always NUL-terminates; plain vsprintf has no
+       limit, so a long %s could overflow this stack buffer (UI-M5). */
     va_start(args, fmt);
-    vsprintf(buf, fmt, args);
+    _vbprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
-    buf[SCREEN_WIDTH] = '\0';  /* Safety truncation */
     video_puts(x, y, buf, attr);
 }
 

@@ -119,8 +119,9 @@ void ui_draw_status_printf(const char *fmt, ...)
     char buf[SCREEN_WIDTH];
     va_list args;
 
+    /* Bounded formatting (UI-M5): plain vsprintf could overflow buf. */
     va_start(args, fmt);
-    vsprintf(buf, fmt, args);
+    _vbprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
     ui_draw_status_bar(buf);
@@ -202,11 +203,13 @@ void ui_message_box(const char *title, const char *message)
     title_len = title ? strlen(title) : 0;
     dlg_width = (msg_width > title_len ? msg_width : title_len) + 6;
     dlg_height = msg_lines + 6;
-    x = (SCREEN_WIDTH - dlg_width) / 2;
-    y = (SCREEN_HEIGHT - dlg_height) / 2;
 
+    /* Clamp the dialog size BEFORE centering, so a long message can't yield a
+       negative/off-screen x/y for a box that then gets clamped to 76 wide. */
     if (dlg_width > 76) dlg_width = 76;
     if (dlg_height > 20) dlg_height = 20;
+    x = (SCREEN_WIDTH - dlg_width) / 2;
+    y = (SCREEN_HEIGHT - dlg_height) / 2;
 
     /* Draw dialog box */
     video_fill(x, y, dlg_width, dlg_height, ' ', ATTR_NORMAL);
@@ -248,12 +251,13 @@ int ui_confirm_box(const char *title, const char *message)
     title_len = title ? strlen(title) : 0;
     dlg_width = (msg_width > title_len ? msg_width : title_len) + 6;
     dlg_height = msg_lines + 6;
-    x = (SCREEN_WIDTH - dlg_width) / 2;
-    y = (SCREEN_HEIGHT - dlg_height) / 2;
 
+    /* Clamp before centering (see ui_message_box). */
     if (dlg_width < 24) dlg_width = 24;
     if (dlg_width > 76) dlg_width = 76;
     if (dlg_height > 20) dlg_height = 20;
+    x = (SCREEN_WIDTH - dlg_width) / 2;
+    y = (SCREEN_HEIGHT - dlg_height) / 2;
 
     /* Draw dialog box */
     video_fill(x, y, dlg_width, dlg_height, ' ', ATTR_NORMAL);
@@ -312,11 +316,13 @@ void ui_error_box(const char *title, const char *message)
     title_len = title ? strlen(title) : 5;  /* "Error" */
     dlg_width = (msg_width > title_len ? msg_width : title_len) + 6;
     dlg_height = msg_lines + 6;
-    x = (SCREEN_WIDTH - dlg_width) / 2;
-    y = (SCREEN_HEIGHT - dlg_height) / 2;
 
+    /* Clamp before centering (see ui_message_box). */
+    if (dlg_width < 24) dlg_width = 24;
     if (dlg_width > 76) dlg_width = 76;
     if (dlg_height > 20) dlg_height = 20;
+    x = (SCREEN_WIDTH - dlg_width) / 2;
+    y = (SCREEN_HEIGHT - dlg_height) / 2;
 
     /* Draw dialog with error styling */
     video_fill(x, y, dlg_width, dlg_height, ' ', ATTR_ERROR);
