@@ -127,7 +127,10 @@ static int legacy_reg_write(int reg, int val)
 
 #define NEAT_RB12_MISC      0x6F    /* RB12 misc reg; bit1 (GA20) gates A20 */
 #define NEAT_A20_BIT        0x02    /* GA20: SET = A20 masked, CLEAR = A20 enabled */
+#define NEAT_RB1_ROMCFG     0x65    /* ROM enable (bits 0-3) + write-protect (4-7) */
 #define NEAT_RB4_SHEN_CD    0x68    /* per-16K shadow enable, C0000-DFFFF */
+#define NEAT_RB5_SHEN_EF    0x69    /* per-16K shadow enable, E0000-FFFFF */
+#define NEAT_SHADOW_REGIONS 16      /* 16 x 16K blocks: region 0=C0000 .. 15=FC000 */
 
 /*
  * Probe for NEAT chipset (verified against 86Box src/chipset/neat.c).
@@ -194,12 +197,86 @@ static int neat_cache_get(void)
     return CACHE_ENABLED;
 }
 
+/*
+ * NEAT shadow RAM / UMB control (verified against 86Box src/chipset/neat.c).
+ *
+ * Region 0..15 = the sixteen 16K blocks C0000-FFFFF (region 0 = C0000). Each
+ * block's state is set by two registers:
+ *   RB1 (0x65): per-64K ROM-enable bits 0-3 (F,E,D,C; 0=ROM on) and per-64K
+ *               write-protect bits 4-7 (F,E,D,C; 1=read-only)
+ *   RB4 (0x68)/RB5 (0x69): per-16K shadow-enable bit (1=RAM mapped)
+ * ROMCS has priority: a block is RAM only if its RB1 ROM bit = 1 (ROM off) AND
+ * its RB4/RB5 enable bit = 1. Backing DRAM (the relocated 384K) must be present
+ * for an RW UMB; for an RO shadow the caller copies ROM->RAM before enabling.
+ */
+static void neat_shadow_bits(int region, int *rom_bit, int *wp_bit,
+                             unsigned char *en_reg, int *en_bit)
+{
+    int g = region >> 2;                  /* 0=C,1=D,2=E,3=F */
+    *rom_bit = 3 - g;                     /* RB1 ROM-enable bit (0=ROM on) */
+    *wp_bit  = 7 - g;                     /* RB1 write-protect bit (1=RO)  */
+    if (region < 8) { *en_reg = NEAT_RB4_SHEN_CD; *en_bit = region;     }
+    else            { *en_reg = NEAT_RB5_SHEN_EF; *en_bit = region - 8; }
+}
+
+static int neat_shadow_set(int region, int mode)
+{
+    int rom_bit, wp_bit, en_bit;
+    unsigned char en_reg, rb1, en;
+
+    if (region < 0 || region >= NEAT_SHADOW_REGIONS) return HAL_ERR_PARAM;
+    neat_shadow_bits(region, &rom_bit, &wp_bit, &en_reg, &en_bit);
+
+    rb1 = legacy_read_default(NEAT_RB1_ROMCFG);   /* read-modify-write: keep */
+    en  = legacy_read_default(en_reg);            /* other blocks' bits intact */
+
+    switch (mode) {
+        case SHADOW_DISABLED:                          /* ROM visible */
+            rb1 &= (unsigned char)~(1 << rom_bit);     /* ROM enabled (0)  */
+            en  &= (unsigned char)~(1 << en_bit);      /* shadow disabled  */
+            break;
+        case SHADOW_RO:                                /* read-only RAM copy */
+            rb1 |= (unsigned char)(1 << rom_bit);      /* ROM disabled (1)  */
+            rb1 |= (unsigned char)(1 << wp_bit);       /* write-protect (1) */
+            en  |= (unsigned char)(1 << en_bit);       /* shadow enabled    */
+            break;
+        case SHADOW_RW:                                /* read-write UMB */
+            rb1 |= (unsigned char)(1 << rom_bit);      /* ROM disabled (1)  */
+            rb1 &= (unsigned char)~(1 << wp_bit);      /* writable (0)      */
+            en  |= (unsigned char)(1 << en_bit);       /* shadow enabled    */
+            break;
+        default:
+            return HAL_ERR_PARAM;
+    }
+
+    legacy_write_default(NEAT_RB1_ROMCFG, rb1);
+    legacy_write_default(en_reg, en);
+    return HAL_OK;
+}
+
+static int neat_shadow_get(int region)
+{
+    int rom_bit, wp_bit, en_bit;
+    unsigned char en_reg, rb1, en;
+
+    if (region < 0 || region >= NEAT_SHADOW_REGIONS) return HAL_ERR_PARAM;
+    neat_shadow_bits(region, &rom_bit, &wp_bit, &en_reg, &en_bit);
+
+    rb1 = legacy_read_default(NEAT_RB1_ROMCFG);
+    en  = legacy_read_default(en_reg);
+
+    /* RAM only if shadow enabled AND ROM disabled (ROMCS priority). */
+    if (!(en & (1 << en_bit)) || !(rb1 & (1 << rom_bit)))
+        return SHADOW_DISABLED;
+    return (rb1 & (1 << wp_bit)) ? SHADOW_RO : SHADOW_RW;
+}
+
 const chipset_ops_t ops_ct_neat = {
     /* Identity */
     .name = "C&T CS8221 (NEAT)",
     .vendor = "C&T",
-    .tier = "I",
-    .score_x10 = 30,
+    .tier = "B",
+    .score_x10 = 72,
 
     /* Detection */
     .probe = neat_probe,
@@ -218,10 +295,10 @@ const chipset_ops_t ops_ct_neat = {
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,
 
-    /* Shadow RAM (info-only) */
-    .shadow_regions = 0,
-    .shadow_get = hal_stub_unsupported_i,
-    .shadow_set = hal_stub_unsupported_ii,
+    /* Shadow RAM (controllable: 16 x 16K blocks C0000-FFFFF) */
+    .shadow_regions = NEAT_SHADOW_REGIONS,
+    .shadow_get = neat_shadow_get,
+    .shadow_set = neat_shadow_set,
 
     /* A20 gate - NEAT has direct control */
     .a20_get = neat_a20_get,
@@ -234,7 +311,7 @@ const chipset_ops_t ops_ct_neat = {
     .reg_write = legacy_reg_write,
 
     /* Metadata */
-    .info_only = 1,
+    .info_only = 0,
     .index_port = LEGACY_INDEX_PORT,
     .data_port = LEGACY_DATA_PORT
 };
