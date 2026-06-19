@@ -11,6 +11,12 @@
 #ifndef CK_HAL_H
 #define CK_HAL_H
 
+/* Host (non-Watcom) builds: neutralize the 16-bit memory-model keyword so the
+ * HAL header parses for off-target unit tests (e.g. the NEAT host-sim test). */
+#if !defined(__WATCOMC__)
+#define far
+#endif
+
 /*============================================================================
  * HAL RESULT CODES
  *============================================================================*/
