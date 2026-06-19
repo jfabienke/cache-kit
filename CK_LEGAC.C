@@ -112,64 +112,79 @@ static int legacy_reg_write(int reg, int val)
  * CS8221 (NEAT Full): Complete 286 chipset
  * CS8230 (NEAT-386): 386SX variant
  *
- * Register layout:
- *   0x19-0x1B: Shadow RAM control
- *   0x1D: Control register (A20 at bit 1)
+ * Register layout (index/data via 0x22/0x23; config window is index 0x60-0x6F,
+ * verified against 86Box src/chipset/neat.c and the CS8221 databook):
+ *   0x65 (RB1):  ROM enable (bits 0-3 = F,E,D,C; 0=ROM on) + write-protect
+ *                (bits 4-7 = F,E,D,C; 1=read-only)
+ *   0x68 (RB4):  per-16K shadow enable, C0000-DFFFF
+ *   0x69 (RB5):  per-16K shadow enable, E0000-FFFFF
+ *   0x6F (RB12): A20 gate at bit1 (GA20), INVERTED (clear = A20 enabled)
  *
- * These are info-only with A20 control capability.
+ * NOTE: the earlier "0x19-0x1B shadow / 0x1D control" map was wrong lore - those
+ * indices are outside the 0x60-0x6F window and read back 0xFF on real hardware
+ * (detection silently failed; A20 hit a non-existent register).
  *============================================================================*/
 
-#define NEAT_CONTROL_REG    0x1D
-#define NEAT_A20_BIT        0x02    /* Bit 1 = A20 gate */
+#define NEAT_RB12_MISC      0x6F    /* RB12 misc reg; bit1 (GA20) gates A20 */
+#define NEAT_A20_BIT        0x02    /* GA20: SET = A20 masked, CLEAR = A20 enabled */
+#define NEAT_RB1_ROMCFG     0x65    /* ROM enable (bits 0-3) + write-protect (4-7) */
+#define NEAT_RB4_SHEN_CD    0x68    /* per-16K shadow enable, C0000-DFFFF */
+#define NEAT_RB5_SHEN_EF    0x69    /* per-16K shadow enable, E0000-FFFFF */
+#define NEAT_SHADOW_REGIONS 16      /* 16 x 16K blocks: region 0=C0000 .. 15=FC000 */
 
 /*
- * Probe for NEAT chipset
- * Check register 0x1D for NEAT-style response
+ * Probe for NEAT chipset (verified against 86Box src/chipset/neat.c).
+ *
+ * NOTE: do NOT use legacy_port_valid() here - it probes index 0x00, which is
+ * outside NEAT's 0x60-0x6F window, so the data port floats 0xFF and the chip
+ * looks absent. Identify the CS8221 non-destructively instead:
+ *   1. port 0x22 is a readable index latch - round-trip two distinct values;
+ *      an undecoded port floats 0xFF and won't round-trip.
+ *   2. the data port answers for an in-window index (0x60-0x6E) but floats
+ *      0xFF for an out-of-window one - distinguishes NEAT from other 0x22/0x23
+ *      chipsets that decode a different index range.
  */
 static int neat_probe(void)
 {
-    unsigned char id;
+    unsigned char a, b, win_in, win_out;
 
-    if (!legacy_port_valid(LEGACY_INDEX_PORT, LEGACY_DATA_PORT)) {
-        return 0;
+    io_write_byte(LEGACY_INDEX_PORT, 0x65);
+    a = io_read_byte(LEGACY_INDEX_PORT);
+    io_write_byte(LEGACY_INDEX_PORT, 0x6A);
+    b = io_read_byte(LEGACY_INDEX_PORT);
+    if (a != 0x65 || b != 0x6A) {
+        return 0;               /* no index latch -> not an index/data chipset */
     }
 
-    /* NEAT has characteristic patterns in control register */
-    id = legacy_read_default(NEAT_CONTROL_REG);
+    io_write_byte(LEGACY_INDEX_PORT, 0x10);             /* outside 0x60-0x6F     */
+    win_out = io_read_byte(LEGACY_DATA_PORT);
+    io_write_byte(LEGACY_INDEX_PORT, NEAT_RB4_SHEN_CD); /* 0x68, inside window   */
+    win_in  = io_read_byte(LEGACY_DATA_PORT);
 
-    /* NEAT control reg typically has bits 7:2 with some set pattern */
-    /* Accept if not all-FF and not all-00 */
-    if (id != 0xFF && id != 0x00) {
-        /* Additional verification: check shadow register exists */
-        unsigned char shadow = legacy_read_default(0x19);
-        if (shadow != 0xFF) {
-            return 1;
-        }
-    }
-
-    return 0;
+    return (win_out == 0xFF && win_in != 0xFF);
 }
 
 /*
- * C&T NEAT A20 control
+ * C&T NEAT A20 control - RB12 (0x6F) GA20 bit, INVERTED:
+ * clearing the bit enables A20 (cf. 86Box neat.c: mem_a20_alt = !(val & GA20)).
  */
 static int neat_a20_get(void)
 {
-    unsigned char val = legacy_read_default(NEAT_CONTROL_REG);
-    return (val & NEAT_A20_BIT) ? 1 : 0;
+    unsigned char val = legacy_read_default(NEAT_RB12_MISC);
+    return (val & NEAT_A20_BIT) ? 0 : 1;
 }
 
 static int neat_a20_set(int enable)
 {
-    unsigned char val = legacy_read_default(NEAT_CONTROL_REG);
+    unsigned char val = legacy_read_default(NEAT_RB12_MISC);
 
     if (enable) {
-        val |= NEAT_A20_BIT;
+        val &= ~NEAT_A20_BIT;       /* clear GA20 to enable A20 */
     } else {
-        val &= ~NEAT_A20_BIT;
+        val |= NEAT_A20_BIT;        /* set GA20 to mask A20      */
     }
 
-    legacy_write_default(NEAT_CONTROL_REG, val);
+    legacy_write_default(NEAT_RB12_MISC, val);
     return HAL_OK;
 }
 
@@ -182,12 +197,86 @@ static int neat_cache_get(void)
     return CACHE_ENABLED;
 }
 
+/*
+ * NEAT shadow RAM / UMB control (verified against 86Box src/chipset/neat.c).
+ *
+ * Region 0..15 = the sixteen 16K blocks C0000-FFFFF (region 0 = C0000). Each
+ * block's state is set by two registers:
+ *   RB1 (0x65): per-64K ROM-enable bits 0-3 (F,E,D,C; 0=ROM on) and per-64K
+ *               write-protect bits 4-7 (F,E,D,C; 1=read-only)
+ *   RB4 (0x68)/RB5 (0x69): per-16K shadow-enable bit (1=RAM mapped)
+ * ROMCS has priority: a block is RAM only if its RB1 ROM bit = 1 (ROM off) AND
+ * its RB4/RB5 enable bit = 1. Backing DRAM (the relocated 384K) must be present
+ * for an RW UMB; for an RO shadow the caller copies ROM->RAM before enabling.
+ */
+static void neat_shadow_bits(int region, int *rom_bit, int *wp_bit,
+                             unsigned char *en_reg, int *en_bit)
+{
+    int g = region >> 2;                  /* 0=C,1=D,2=E,3=F */
+    *rom_bit = 3 - g;                     /* RB1 ROM-enable bit (0=ROM on) */
+    *wp_bit  = 7 - g;                     /* RB1 write-protect bit (1=RO)  */
+    if (region < 8) { *en_reg = NEAT_RB4_SHEN_CD; *en_bit = region;     }
+    else            { *en_reg = NEAT_RB5_SHEN_EF; *en_bit = region - 8; }
+}
+
+static int neat_shadow_set(int region, int mode)
+{
+    int rom_bit, wp_bit, en_bit;
+    unsigned char en_reg, rb1, en;
+
+    if (region < 0 || region >= NEAT_SHADOW_REGIONS) return HAL_ERR_PARAM;
+    neat_shadow_bits(region, &rom_bit, &wp_bit, &en_reg, &en_bit);
+
+    rb1 = legacy_read_default(NEAT_RB1_ROMCFG);   /* read-modify-write: keep */
+    en  = legacy_read_default(en_reg);            /* other blocks' bits intact */
+
+    switch (mode) {
+        case SHADOW_DISABLED:                          /* ROM visible */
+            rb1 &= (unsigned char)~(1 << rom_bit);     /* ROM enabled (0)  */
+            en  &= (unsigned char)~(1 << en_bit);      /* shadow disabled  */
+            break;
+        case SHADOW_RO:                                /* read-only RAM copy */
+            rb1 |= (unsigned char)(1 << rom_bit);      /* ROM disabled (1)  */
+            rb1 |= (unsigned char)(1 << wp_bit);       /* write-protect (1) */
+            en  |= (unsigned char)(1 << en_bit);       /* shadow enabled    */
+            break;
+        case SHADOW_RW:                                /* read-write UMB */
+            rb1 |= (unsigned char)(1 << rom_bit);      /* ROM disabled (1)  */
+            rb1 &= (unsigned char)~(1 << wp_bit);      /* writable (0)      */
+            en  |= (unsigned char)(1 << en_bit);       /* shadow enabled    */
+            break;
+        default:
+            return HAL_ERR_PARAM;
+    }
+
+    legacy_write_default(NEAT_RB1_ROMCFG, rb1);
+    legacy_write_default(en_reg, en);
+    return HAL_OK;
+}
+
+static int neat_shadow_get(int region)
+{
+    int rom_bit, wp_bit, en_bit;
+    unsigned char en_reg, rb1, en;
+
+    if (region < 0 || region >= NEAT_SHADOW_REGIONS) return HAL_ERR_PARAM;
+    neat_shadow_bits(region, &rom_bit, &wp_bit, &en_reg, &en_bit);
+
+    rb1 = legacy_read_default(NEAT_RB1_ROMCFG);
+    en  = legacy_read_default(en_reg);
+
+    /* RAM only if shadow enabled AND ROM disabled (ROMCS priority). */
+    if (!(en & (1 << en_bit)) || !(rb1 & (1 << rom_bit)))
+        return SHADOW_DISABLED;
+    return (rb1 & (1 << wp_bit)) ? SHADOW_RO : SHADOW_RW;
+}
+
 const chipset_ops_t ops_ct_neat = {
     /* Identity */
     .name = "C&T CS8221 (NEAT)",
     .vendor = "C&T",
-    .tier = "I",
-    .score_x10 = 30,
+    .tier = "B",
+    .score_x10 = 72,
 
     /* Detection */
     .probe = neat_probe,
@@ -206,10 +295,10 @@ const chipset_ops_t ops_ct_neat = {
     .nc_write = hal_stub_unsupported_iull,
     .nc_clear = hal_stub_unsupported_i,
 
-    /* Shadow RAM (info-only) */
-    .shadow_regions = 0,
-    .shadow_get = hal_stub_unsupported_i,
-    .shadow_set = hal_stub_unsupported_ii,
+    /* Shadow RAM (controllable: 16 x 16K blocks C0000-FFFFF) */
+    .shadow_regions = NEAT_SHADOW_REGIONS,
+    .shadow_get = neat_shadow_get,
+    .shadow_set = neat_shadow_set,
 
     /* A20 gate - NEAT has direct control */
     .a20_get = neat_a20_get,
@@ -222,33 +311,28 @@ const chipset_ops_t ops_ct_neat = {
     .reg_write = legacy_reg_write,
 
     /* Metadata */
-    .info_only = 1,
+    .info_only = 0,
     .index_port = LEGACY_INDEX_PORT,
     .data_port = LEGACY_DATA_PORT
 };
 
 /*
- * NEAT-386 (CS8230) - 386SX variant
- * Probe checks for 386SX indicator in NEAT registers
+ * NEAT-386 (CS8230) - 386SX variant.
+ *
+ * The old probe used wrong-lore registers (0x1D control + 0x1E "386SX
+ * indicator"), both outside NEAT's 0x60-0x6F window, so it read 0xFF and never
+ * matched on real hardware anyway. CS8230 shares the CS8221 register model, and
+ * the 286-vs-386SX distinction can't be made non-destructively from the index/
+ * data ports (the only port-visible difference is RB2's writable-bit mask, and
+ * probing it means writing the memory-enable register on a live system).
+ *
+ * Until a verified, non-destructive 386SX signature exists, fall through: the
+ * shared neat_probe() (registered next) detects the NEAT family and its ops
+ * work for both. A 386SX board is therefore reported as CS8221 - family and
+ * behaviour correct, only the SX label lost. (Previously: detected as neither.)
  */
 static int neat386_probe(void)
 {
-    unsigned char id, id2;
-
-    if (!legacy_port_valid(LEGACY_INDEX_PORT, LEGACY_DATA_PORT)) {
-        return 0;
-    }
-
-    id = legacy_read_default(NEAT_CONTROL_REG);
-
-    if (id != 0xFF && id != 0x00) {
-        /* Check for 386SX indicator - bit pattern in register 0x1E */
-        id2 = legacy_read_default(0x1E);
-        if (id2 & 0x10) {  /* 386SX support indicator */
-            return 1;
-        }
-    }
-
     return 0;
 }
 

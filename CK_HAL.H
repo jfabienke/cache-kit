@@ -11,6 +11,12 @@
 #ifndef CK_HAL_H
 #define CK_HAL_H
 
+/* Host (non-Watcom) builds: neutralize the 16-bit memory-model keyword so the
+ * HAL header parses for off-target unit tests (e.g. the NEAT host-sim test). */
+#if !defined(__WATCOMC__)
+#define far
+#endif
+
 /*============================================================================
  * HAL RESULT CODES
  *============================================================================*/
@@ -208,6 +214,10 @@ void pci_write_config_dword(unsigned char bus, unsigned char dev,
 /*============================================================================
  * LEGACY INDEX/DATA PORT ACCESS (defined in CK_IO.C)
  *============================================================================*/
+
+/* Raw single-byte port I/O (used by index-latch probes, e.g. NEAT 0x22). */
+unsigned char io_read_byte(unsigned int port);
+void io_write_byte(unsigned int port, unsigned char val);
 
 unsigned char legacy_read_reg(unsigned int index_port, unsigned int data_port,
                               unsigned char reg);
